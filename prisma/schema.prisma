@@ -1,0 +1,713 @@
+// Northstar Congressional Intelligence Platform
+// Complete Prisma Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// Core Congressional Data
+// ============================================================================
+
+model Bill {
+  id                   Int       @id @default(autoincrement())
+  billId               String    @unique @map("bill_id") // 'hr1234-118'
+  congress             Int
+  billType             String    @map("bill_type") // 'hr', 's', 'hjres', etc.
+  billNumber           Int       @map("bill_number")
+  
+  // Titles
+  title                String?
+  shortTitle           String?   @map("short_title")
+  officialTitle        String?   @map("official_title") @db.Text
+  popularTitle         String?   @map("popular_title")
+  
+  // Dates & Status
+  introducedDate       DateTime? @map("introduced_date") @db.Date
+  latestActionDate     DateTime? @map("latest_action_date") @db.Date
+  latestActionText     String?   @map("latest_action_text") @db.Text
+  status               String?   // 'introduced', 'passed_house', etc.
+  
+  // Sponsorship
+  sponsorBioguideId    String?   @map("sponsor_bioguide_id")
+  
+  // Classification
+  policyArea           String?   @map("policy_area")
+  subjects             Json?     // Array of subject tags
+  
+  // Content
+  summaryText          String?   @map("summary_text") @db.Text
+  aiSummary            String?   @map("ai_summary") @db.Text
+  fullTextUrl          String?   @map("full_text_url")
+  congressGovUrl       String?   @map("congress_gov_url")
+  
+  // Analytics (computed fields)
+  passageProbability   Decimal?  @map("passage_probability") @db.Decimal(5, 2)
+  bipartisanScore      Decimal?  @map("bipartisan_score") @db.Decimal(5, 2)
+  mediaSentiment       Decimal?  @map("media_sentiment") @db.Decimal(5, 2)
+  lobbyingCount        Int       @default(0) @map("lobbying_count")
+  
+  // Metadata
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  lastSyncedAt         DateTime? @map("last_synced_at")
+  
+  // Relations
+  sponsor              Member?   @relation("SponsoredBills", fields: [sponsorBioguideId], references: [bioguideId])
+  cosponsors           Cosponsor[]
+  actions              BillAction[]
+  amendments           Amendment[]
+  votes                Vote[]
+  lobbyingReports      LobbyingReport[] @relation("BillLobbyingReports")
+  newsArticles         NewsArticle[] @relation("BillNewsArticles")
+  tracking             BillTracking[]
+  
+  @@index([congress])
+  @@index([status])
+  @@index([introducedDate])
+  @@index([sponsorBioguideId])
+  @@unique([congress, billType, billNumber])
+  @@map("bills")
+}
+
+model Member {
+  id                   Int       @id @default(autoincrement())
+  bioguideId           String    @unique @map("bioguide_id") // 'S000033'
+  
+  // Name
+  firstName            String    @map("first_name")
+  lastName             String    @map("last_name")
+  fullName             String    @map("full_name")
+  
+  // Political Info
+  party                String    // 'D', 'R', 'I'
+  state                String    // Two-letter code
+  district             Int?      // NULL for senators
+  chamber              String    // 'house' or 'senate'
+  
+  // Contact
+  officeAddress        String?   @map("office_address") @db.Text
+  phone                String?
+  email                String?
+  website              String?
+  
+  // Social Media
+  twitterHandle        String?   @map("twitter_handle")
+  facebookUrl          String?   @map("facebook_url")
+  youtubeUrl           String?   @map("youtube_url")
+  
+  // Service
+  currentMember        Boolean   @default(true) @map("current_member")
+  termsServed          Int       @default(0) @map("terms_served")
+  firstElected         DateTime? @map("first_elected") @db.Date
+  currentTermStart     DateTime? @map("current_term_start") @db.Date
+  currentTermEnd       DateTime? @map("current_term_end") @db.Date
+  
+  // Analytics
+  billsSponsored       Int       @default(0) @map("bills_sponsored")
+  billsCosponsored     Int       @default(0) @map("bills_cosponsored")
+  votesCast            Int       @default(0) @map("votes_cast")
+  votesMissed          Int       @default(0) @map("votes_missed")
+  bipartisanScore      Decimal?  @map("bipartisan_score") @db.Decimal(5, 2)
+  influenceScore       Decimal?  @map("influence_score") @db.Decimal(5, 2)
+  mediaMentions        Int       @default(0) @map("media_mentions")
+  
+  // Metadata
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  lastSyncedAt         DateTime? @map("last_synced_at")
+  
+  // Relations
+  sponsoredBills       Bill[]    @relation("SponsoredBills")
+  cosponsors           Cosponsor[]
+  votePositions        VotePosition[]
+  committeeMemberships CommitteeMembership[]
+  sponsoredAmendments  Amendment[]
+  campaignContributions CampaignContribution[]
+  newsArticles         NewsArticle[] @relation("MemberNewsArticles")
+  offices              Office[]
+  users                User[]
+  districts            District[]
+  
+  @@index([bioguideId])
+  @@index([state])
+  @@index([party])
+  @@index([chamber])
+  @@index([currentMember])
+  @@map("members")
+}
+
+model Cosponsor {
+  id                   Int       @id @default(autoincrement())
+  billId               String    @map("bill_id")
+  memberBioguideId     String    @map("member_bioguide_id")
+  
+  sponsoredDate        DateTime? @map("sponsored_date") @db.Date
+  isOriginalCosponsor  Boolean   @default(false) @map("is_original_cosponsor")
+  withdrawnDate        DateTime? @map("withdrawn_date") @db.Date
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  bill                 Bill      @relation(fields: [billId], references: [billId], onDelete: Cascade)
+  member               Member    @relation(fields: [memberBioguideId], references: [bioguideId])
+  
+  @@unique([billId, memberBioguideId])
+  @@index([billId])
+  @@index([memberBioguideId])
+  @@map("cosponsors")
+}
+
+model Vote {
+  id                   Int       @id @default(autoincrement())
+  voteId               String    @unique @map("vote_id") // 'h123-118'
+  congress             Int
+  chamber              String    // 'house' or 'senate'
+  session              Int?
+  rollNumber           Int       @map("roll_number")
+  
+  // Vote Details
+  voteDate             DateTime  @map("vote_date")
+  voteQuestion         String?   @map("vote_question") @db.Text
+  voteType             String?   @map("vote_type")
+  voteResult           String?   @map("vote_result")
+  
+  // Bill Reference
+  billId               String?   @map("bill_id")
+  amendmentId          String?   @map("amendment_id")
+  
+  // Vote Totals
+  yeaTotal             Int?      @map("yea_total")
+  nayTotal             Int?      @map("nay_total")
+  presentTotal         Int?      @map("present_total")
+  notVotingTotal       Int?      @map("not_voting_total")
+  
+  // Party Breakdown
+  democratYea          Int?      @map("democrat_yea")
+  democratNay          Int?      @map("democrat_nay")
+  republicanYea        Int?      @map("republican_yea")
+  republicanNay        Int?      @map("republican_nay")
+  independentYea       Int?      @map("independent_yea")
+  independentNay       Int?      @map("independent_nay")
+  
+  // Analytics
+  bipartisan           Boolean?  // Both parties voted together
+  partyLineVote        Boolean?  @map("party_line_vote")
+  
+  // Metadata
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  bill                 Bill?     @relation(fields: [billId], references: [billId])
+  positions            VotePosition[]
+  
+  @@index([congress])
+  @@index([chamber])
+  @@index([voteDate])
+  @@index([billId])
+  @@map("votes")
+}
+
+model VotePosition {
+  id                   Int       @id @default(autoincrement())
+  voteId               String    @map("vote_id")
+  memberBioguideId     String    @map("member_bioguide_id")
+  
+  position             String    // 'Yea', 'Nay', 'Present', 'Not Voting'
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  vote                 Vote      @relation(fields: [voteId], references: [voteId], onDelete: Cascade)
+  member               Member    @relation(fields: [memberBioguideId], references: [bioguideId])
+  
+  @@unique([voteId, memberBioguideId])
+  @@index([voteId])
+  @@index([memberBioguideId])
+  @@index([position])
+  @@map("vote_positions")
+}
+
+model Committee {
+  id                   Int       @id @default(autoincrement())
+  committeeCode        String    @unique @map("committee_code") // 'HSAG'
+  
+  name                 String
+  chamber              String    // 'house', 'senate', 'joint'
+  committeeType        String?   @map("committee_type") // 'standing', 'select', 'joint'
+  parentCommitteeCode  String?   @map("parent_committee_code")
+  
+  // Leadership
+  chairBioguideId      String?   @map("chair_bioguide_id")
+  rankingMemberId      String?   @map("ranking_member_id")
+  
+  // Contact
+  phone                String?
+  address              String?   @db.Text
+  website              String?
+  
+  // Metadata
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  parentCommittee      Committee?  @relation("Subcommittees", fields: [parentCommitteeCode], references: [committeeCode])
+  subcommittees        Committee[] @relation("Subcommittees")
+  memberships          CommitteeMembership[]
+  hearings             Hearing[]
+  
+  @@index([chamber])
+  @@index([committeeType])
+  @@map("committees")
+}
+
+model CommitteeMembership {
+  id                   Int       @id @default(autoincrement())
+  committeeCode        String    @map("committee_code")
+  memberBioguideId     String    @map("member_bioguide_id")
+  
+  rank                 Int?      // Seniority ranking
+  isChair              Boolean   @default(false) @map("is_chair")
+  isRankingMember      Boolean   @default(false) @map("is_ranking_member")
+  startDate            DateTime? @map("start_date") @db.Date
+  endDate              DateTime? @map("end_date") @db.Date
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  committee            Committee @relation(fields: [committeeCode], references: [committeeCode])
+  member               Member    @relation(fields: [memberBioguideId], references: [bioguideId])
+  
+  @@unique([committeeCode, memberBioguideId])
+  @@index([committeeCode])
+  @@index([memberBioguideId])
+  @@map("committee_memberships")
+}
+
+model Amendment {
+  id                   Int       @id @default(autoincrement())
+  amendmentId          String    @unique @map("amendment_id") // 'hamdt123-118'
+  congress             Int
+  amendmentType        String    @map("amendment_type") // 'hamdt', 'samdt', 'suamdt'
+  amendmentNumber      Int       @map("amendment_number")
+  
+  // Bill Reference
+  billId               String?   @map("bill_id")
+  
+  // Amendment Details
+  sponsorBioguideId    String?   @map("sponsor_bioguide_id")
+  submittedDate        DateTime? @map("submitted_date") @db.Date
+  purpose              String?   @db.Text
+  description          String?   @db.Text
+  status               String?
+  
+  // Text
+  amendmentText        String?   @map("amendment_text") @db.Text
+  
+  // Metadata
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  bill                 Bill?     @relation(fields: [billId], references: [billId])
+  sponsor              Member?   @relation(fields: [sponsorBioguideId], references: [bioguideId])
+  
+  @@index([congress])
+  @@index([billId])
+  @@index([sponsorBioguideId])
+  @@map("amendments")
+}
+
+model BillAction {
+  id                   Int       @id @default(autoincrement())
+  billId               String    @map("bill_id")
+  
+  actionDate           DateTime  @map("action_date") @db.Date
+  actionTime           String?   @map("action_time") @db.Time
+  actionText           String    @map("action_text") @db.Text
+  actionCode           String?   @map("action_code")
+  chamber              String?   // 'house', 'senate', NULL
+  actionType           String?   @map("action_type")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  bill                 Bill      @relation(fields: [billId], references: [billId], onDelete: Cascade)
+  
+  @@index([billId])
+  @@index([actionDate])
+  @@map("bill_actions")
+}
+
+// ============================================================================
+// Lobbying & Finance
+// ============================================================================
+
+model LobbyingReport {
+  id                   Int       @id @default(autoincrement())
+  reportId             String    @unique @map("report_id")
+  filingDate           DateTime? @map("filing_date") @db.Date
+  filingType           String?   @map("filing_type")
+  
+  // Filer Information
+  registrantName       String?   @map("registrant_name")
+  registrantId         String?   @map("registrant_id")
+  clientName           String?   @map("client_name")
+  clientId             String?   @map("client_id")
+  
+  // Financial
+  incomeAmount         Decimal?  @map("income_amount") @db.Decimal(12, 2)
+  expenseAmount        Decimal?  @map("expense_amount") @db.Decimal(12, 2)
+  
+  // Issues
+  generalIssueCodes    Json?     @map("general_issue_codes")
+  specificIssues       String?   @map("specific_issues") @db.Text
+  
+  // Bills Mentioned
+  billsMentioned       Json?     @map("bills_mentioned") // Array of bill_ids
+  
+  // Lobbyists
+  lobbyists            Json?     // Array of lobbyist objects
+  
+  // Government Entities
+  governmentEntities   Json?     @map("government_entities")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  bills                Bill[]    @relation("BillLobbyingReports")
+  
+  @@index([registrantName])
+  @@index([clientName])
+  @@index([filingDate])
+  @@map("lobbying_reports")
+}
+
+model CampaignContribution {
+  id                   Int       @id @default(autoincrement())
+  memberBioguideId     String    @map("member_bioguide_id")
+  
+  contributorName      String    @map("contributor_name")
+  contributorType      String    @map("contributor_type") // 'Individual', 'PAC', etc.
+  amount               Decimal   @db.Decimal(10, 2)
+  contributionDate     DateTime? @map("contribution_date") @db.Date
+  cycle                Int       // Election cycle year
+  
+  // Classification
+  industryName         String?   @map("industry_name")
+  sectorName           String?   @map("sector_name")
+  
+  // Source
+  source               String    @default("OpenSecrets")
+  externalId           String?   @map("external_id")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  member               Member    @relation(fields: [memberBioguideId], references: [bioguideId])
+  
+  @@index([memberBioguideId])
+  @@index([cycle])
+  @@index([industryName])
+  @@map("campaign_contributions")
+}
+
+// ============================================================================
+// District Intelligence
+// ============================================================================
+
+model District {
+  id                   Int       @id @default(autoincrement())
+  state                String    // Two-letter code
+  districtNumber       Int       @map("district_number") // 0 for at-large
+  congress             Int
+  
+  // Current Member
+  memberBioguideId     String?   @map("member_bioguide_id")
+  
+  // Demographics
+  totalPopulation      Int?      @map("total_population")
+  medianAge            Decimal?  @map("median_age") @db.Decimal(4, 1)
+  medianIncome         Decimal?  @map("median_income") @db.Decimal(10, 2)
+  povertyRate          Decimal?  @map("poverty_rate") @db.Decimal(5, 2)
+  unemploymentRate     Decimal?  @map("unemployment_rate") @db.Decimal(5, 2)
+  
+  // Race/Ethnicity
+  percentWhite         Decimal?  @map("percent_white") @db.Decimal(5, 2)
+  percentBlack         Decimal?  @map("percent_black") @db.Decimal(5, 2)
+  percentHispanic      Decimal?  @map("percent_hispanic") @db.Decimal(5, 2)
+  percentAsian         Decimal?  @map("percent_asian") @db.Decimal(5, 2)
+  percentOther         Decimal?  @map("percent_other") @db.Decimal(5, 2)
+  
+  // Education
+  percentBachelors     Decimal?  @map("percent_bachelors") @db.Decimal(5, 2)
+  percentGraduate      Decimal?  @map("percent_graduate") @db.Decimal(5, 2)
+  
+  // Housing
+  medianHomeValue      Decimal?  @map("median_home_value") @db.Decimal(12, 2)
+  homeownershipRate    Decimal?  @map("homeownership_rate") @db.Decimal(5, 2)
+  
+  // Veterans
+  veteranPopulation    Int?      @map("veteran_population")
+  
+  // Full JSON for detailed data
+  censusDataJson       Json?     @map("census_data_json")
+  
+  // Geography
+  geojsonBoundary      Json?     @map("geojson_boundary")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  member               Member?   @relation(fields: [memberBioguideId], references: [bioguideId])
+  spending             FederalSpending[]
+  
+  @@unique([state, districtNumber, congress])
+  @@index([state])
+  @@index([memberBioguideId])
+  @@map("districts")
+}
+
+model FederalSpending {
+  id                   Int       @id @default(autoincrement())
+  state                String
+  districtNumber       Int       @map("district_number")
+  fiscalYear           Int       @map("fiscal_year")
+  
+  // Spending Categories
+  totalObligations     Decimal?  @map("total_obligations") @db.Decimal(15, 2)
+  defenseSpending      Decimal?  @map("defense_spending") @db.Decimal(15, 2)
+  healthcareSpending   Decimal?  @map("healthcare_spending") @db.Decimal(15, 2)
+  educationSpending    Decimal?  @map("education_spending") @db.Decimal(15, 2)
+  infrastructureSpend  Decimal?  @map("infrastructure_spend") @db.Decimal(15, 2)
+  agricultureSpending  Decimal?  @map("agriculture_spending") @db.Decimal(15, 2)
+  
+  // Top Awards
+  topAwardsJson        Json?     @map("top_awards_json")
+  
+  // Source
+  source               String    @default("USASpending")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  district             District? @relation(fields: [state, districtNumber], references: [state, districtNumber])
+  
+  @@unique([state, districtNumber, fiscalYear])
+  @@index([state])
+  @@index([fiscalYear])
+  @@map("federal_spending")
+}
+
+// ============================================================================
+// Media & Intelligence
+// ============================================================================
+
+model NewsArticle {
+  id                   Int       @id @default(autoincrement())
+  url                  String    @unique @db.Text
+  title                String    @db.Text
+  source               String?
+  author               String?
+  publishedAt          DateTime? @map("published_at")
+  
+  // Content
+  summary              String?   @db.Text
+  fullText             String?   @map("full_text") @db.Text
+  
+  // Mentions (JSON arrays of IDs)
+  billsMentioned       Json?     @map("bills_mentioned")
+  membersMentioned     Json?     @map("members_mentioned")
+  
+  // Sentiment (TrulifAI Brain)
+  sentimentScore       Decimal?  @map("sentiment_score") @db.Decimal(5, 2)
+  credibilityScore     Decimal?  @map("credibility_score") @db.Decimal(5, 2)
+  biasRating           String?   @map("bias_rating")
+  
+  // Classification
+  topics               Json?     // Array of topic tags
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  bills                Bill[]    @relation("BillNewsArticles")
+  members              Member[]  @relation("MemberNewsArticles")
+  
+  @@index([publishedAt])
+  @@map("news_articles")
+}
+
+model Hearing {
+  id                   Int       @id @default(autoincrement())
+  hearingId            String    @unique @map("hearing_id")
+  congress             Int?
+  chamber              String?
+  committeeCode        String?   @map("committee_code")
+  
+  // Hearing Details
+  title                String?   @db.Text
+  hearingDate          DateTime? @map("hearing_date") @db.Date
+  hearingType          String?   @map("hearing_type")
+  location             String?
+  
+  // Content
+  description          String?   @db.Text
+  transcriptUrl        String?   @map("transcript_url")
+  videoUrl             String?   @map("video_url")
+  
+  // Witnesses
+  witnesses            Json?     // Array of witness objects
+  
+  // Bills Discussed
+  billsDiscussed       Json?     @map("bills_discussed")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  committee            Committee? @relation(fields: [committeeCode], references: [committeeCode])
+  
+  @@index([committeeCode])
+  @@index([hearingDate])
+  @@map("hearings")
+}
+
+// ============================================================================
+// User & Enterprise
+// ============================================================================
+
+model User {
+  id                   Int       @id @default(autoincrement())
+  email                String    @unique
+  passwordHash         String?   @map("password_hash")
+  
+  // Profile
+  firstName            String?   @map("first_name")
+  lastName             String?   @map("last_name")
+  role                 String?   // 'admin', 'staff', 'viewer'
+  
+  // Office Affiliation
+  officeId             Int?      @map("office_id")
+  memberBioguideId     String?   @map("member_bioguide_id")
+  
+  // Authentication
+  apiKey               String?   @unique @map("api_key")
+  lastLoginAt          DateTime? @map("last_login_at")
+  
+  // Metadata
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  office               Office?   @relation(fields: [officeId], references: [id])
+  member               Member?   @relation(fields: [memberBioguideId], references: [bioguideId])
+  tracking             BillTracking[]
+  analyticsEvents      AnalyticsEvent[]
+  
+  @@index([email])
+  @@index([apiKey])
+  @@index([officeId])
+  @@map("users")
+}
+
+model Office {
+  id                   Int       @id @default(autoincrement())
+  name                 String    // "Office of Senator Bernie Sanders"
+  memberBioguideId     String?   @map("member_bioguide_id")
+  
+  // Subscription
+  tier                 String?   // 'pilot', 'standard', 'enterprise'
+  active               Boolean   @default(true)
+  subscriptionStart    DateTime? @map("subscription_start") @db.Date
+  subscriptionEnd      DateTime? @map("subscription_end") @db.Date
+  
+  // Usage Limits
+  monthlyApiCalls      Int       @default(0) @map("monthly_api_calls")
+  apiCallLimit         Int?      @map("api_call_limit")
+  
+  // Settings
+  settingsJson         Json?     @map("settings_json")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  
+  // Relations
+  member               Member?   @relation(fields: [memberBioguideId], references: [bioguideId])
+  users                User[]
+  
+  @@index([memberBioguideId])
+  @@map("offices")
+}
+
+model BillTracking {
+  id                   Int       @id @default(autoincrement())
+  userId               Int       @map("user_id")
+  billId               String    @map("bill_id")
+  
+  // Tracking Preferences
+  alertOnUpdate        Boolean   @default(true) @map("alert_on_update")
+  alertOnVote          Boolean   @default(true) @map("alert_on_vote")
+  notes                String?   @db.Text
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bill                 Bill      @relation(fields: [billId], references: [billId], onDelete: Cascade)
+  
+  @@unique([userId, billId])
+  @@index([userId])
+  @@index([billId])
+  @@map("bill_tracking")
+}
+
+// ============================================================================
+// Caching & Analytics
+// ============================================================================
+
+model ApiCache {
+  id                   Int       @id @default(autoincrement())
+  cacheKey             String    @unique @map("cache_key")
+  cacheValue           Json      @map("cache_value")
+  expiresAt            DateTime  @map("expires_at")
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  @@index([cacheKey])
+  @@index([expiresAt])
+  @@map("api_cache")
+}
+
+model AnalyticsEvent {
+  id                   Int       @id @default(autoincrement())
+  eventType            String    @map("event_type") // 'api_call', 'search', etc.
+  userId               Int?      @map("user_id")
+  apiKey               String?   @map("api_key")
+  
+  // Request Details
+  endpoint             String?
+  method               String?
+  queryParams          Json?     @map("query_params")
+  responseTimeMs       Int?      @map("response_time_ms")
+  statusCode           Int?      @map("status_code")
+  
+  // Metadata
+  ipAddress            String?   @map("ip_address")
+  userAgent            String?   @map("user_agent") @db.Text
+  
+  createdAt            DateTime  @default(now()) @map("created_at")
+  
+  // Relations
+  user                 User?     @relation(fields: [userId], references: [id])
+  
+  @@index([eventType])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("analytics_events")
+}

@@ -34,3 +34,5 @@ coverage/
 *.seed
 *.pid.lock
 .cache
+
+/backend/generated/prisma
