@@ -12,6 +12,10 @@ import config from './config';
 // Routes
 import billsRouter from './routes/bills.route';
 import membersRouter from './routes/members.route';
+import votesRouter from './routes/votes.route';
+import committeesRouter from './routes/committees.route';
+import amendmentsRouter from './routes/amendments.route';
+import hearingsRouter from './routes/hearings.route';
 
 const app: Application = express();
 
@@ -86,13 +90,76 @@ app.get('/api', (req: Request, res: Response) => {
     version: '1.0.0',
     description: 'Complete congressional data API with AI-powered intelligence',
     documentation: '/api/docs',
+    status: 'operational',
     endpoints: {
-      bills: '/api/bills',
-      members: '/api/members',
-      votes: '/api/votes',
-      committees: '/api/committees',
-      amendments: '/api/amendments',
-      hearings: '/api/hearings',
+      bills: {
+        base: '/api/bills',
+        description: 'Search bills, get details, actions, cosponsors, amendments',
+        examples: [
+          '/api/bills?congress=118&limit=5',
+          '/api/bills/118/hr/1',
+          '/api/bills/118/hr/1/cosponsors',
+        ],
+      },
+      members: {
+        base: '/api/members',
+        description: 'Search members, get details, sponsored bills',
+        examples: [
+          '/api/members?state=CA&party=D',
+          '/api/members/S000033',
+          '/api/members/S000033/sponsored-bills',
+        ],
+      },
+      votes: {
+        base: '/api/votes',
+        description: 'Search votes, get roll-call details',
+        examples: [
+          '/api/votes?congress=118&chamber=house',
+          '/api/votes/118/house/123',
+        ],
+      },
+      committees: {
+        base: '/api/committees',
+        description: 'Get committees, details, bills',
+        examples: [
+          '/api/committees?chamber=house',
+          '/api/committees/house/HSAG',
+          '/api/committees/house/HSAG/bills',
+        ],
+      },
+      amendments: {
+        base: '/api/amendments',
+        description: 'Search amendments, get details',
+        examples: [
+          '/api/amendments/118?amendmentType=hamdt',
+          '/api/amendments/118/hamdt/123',
+        ],
+      },
+      hearings: {
+        base: '/api/hearings',
+        description: 'Search congressional hearings',
+        examples: [
+          '/api/hearings?congress=118&chamber=senate',
+        ],
+      },
+    },
+    features: {
+      working: [
+        'Bills & Legislation (10 endpoints)',
+        'Members & Legislators (4 endpoints)',
+        'Votes & Voting Records (2 endpoints)',
+        'Committees (3 endpoints)',
+        'Amendments (2 endpoints)',
+        'Hearings (1 endpoint)',
+      ],
+      planned: [
+        'AI Bill Summarization',
+        'Natural Language Search',
+        'Lobbying Intelligence',
+        'Campaign Finance',
+        'District Impact Analysis',
+        'Real-time Notifications',
+      ],
     },
   });
 });
@@ -100,23 +167,10 @@ app.get('/api', (req: Request, res: Response) => {
 // Mount route handlers
 app.use('/api/bills', billsRouter);
 app.use('/api/members', membersRouter);
-
-// Placeholder routes (to be implemented)
-app.get('/api/votes', (req: Request, res: Response) => {
-  res.json({ message: 'Votes endpoint - coming soon' });
-});
-
-app.get('/api/committees', (req: Request, res: Response) => {
-  res.json({ message: 'Committees endpoint - coming soon' });
-});
-
-app.get('/api/amendments', (req: Request, res: Response) => {
-  res.json({ message: 'Amendments endpoint - coming soon' });
-});
-
-app.get('/api/hearings', (req: Request, res: Response) => {
-  res.json({ message: 'Hearings endpoint - coming soon' });
-});
+app.use('/api/votes', votesRouter);
+app.use('/api/committees', committeesRouter);
+app.use('/api/amendments', amendmentsRouter);
+app.use('/api/hearings', hearingsRouter);
 
 // ============================================================================
 // Error Handling
@@ -161,10 +215,13 @@ app.listen(PORT, () => {
   console.log('Features:');
   console.log('  ✓ Bills & Legislation');
   console.log('  ✓ Members & Legislators');
-  console.log('  ⏳ Votes & Voting Records');
-  console.log('  ⏳ Committees & Hearings');
-  console.log('  ⏳ Amendments');
+  console.log('  ✓ Votes & Voting Records');
+  console.log('  ✓ Committees');
+  console.log('  ✓ Amendments');
+  console.log('  ✓ Hearings');
   console.log('  ⏳ AI-Powered Intelligence');
+  console.log('  ⏳ Lobbying & Finance');
+  console.log('  ⏳ District Intelligence');
   console.log('');
   console.log(`Congress.gov API: ${config.apiKeys.congressGov ? '✓ Connected' : '✗ Not configured'}`);
   console.log('');
