@@ -16,34 +16,40 @@ const router = Router();
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const params: MemberSearchParams = {
-      query: req.query.query as string | undefined,
-      state: req.query.state as string | undefined,
-      party: req.query.party as any,
-      chamber: req.query.chamber as any,
-      currentMember: req.query.currentMember === 'false' ? false : true,
-      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : 0,
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 20,
-    };
+    const state = req.query.state as string | undefined;
+    const party = req.query.party as string | undefined;
+    const chamber = req.query.chamber as string | undefined;
+    const offset = req.query.offset ? parseInt(req.query.offset as string, 10) : 0;
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 20;
 
-    const result = await dbService.getMembers(params);
+    const result = await dbService.getMembers({
+      state,
+      party,
+      chamber,
+      offset,
+      limit,
+    });
 
-    if (!result.success) {
-      return res.status(500).json({
-        error: result.error?.message || 'Failed to fetch members',
-        details: result.error?.details,
-      });
-    }
+    console.log(`[API] Returned ${result.data.length} members (cached: ${result.cached})`);
 
     res.json({
       success: true,
-      data: result.data?.data || [],
-      pagination: result.data?.pagination,
+      data: result.data,
+      pagination: {
+        total: result.total,
+        offset,
+        limit,
+        hasMore: offset + limit < result.total,
+      },
+      meta: {
+        cached: result.cached,
+        timestamp: new Date().toISOString(),
+      },
     });
   } catch (error) {
     console.error('Error in GET /api/members:', error);
     res.status(500).json({
-      error: 'Internal server error',
+      error: 'Failed to fetch members',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

@@ -11,7 +11,6 @@ import config from './config';
 
 // Routes
 import billsRouter from './routes/bills.route';
-import billsCachedRouter from './routes/bills.cached.route';
 import membersRouter from './routes/members.route';
 import votesRouter from './routes/votes.route';
 import committeesRouter from './routes/committees.route';
@@ -167,7 +166,6 @@ app.get('/api', (req: Request, res: Response) => {
 
 // Mount route handlers
 app.use('/api/bills', billsRouter);
-app.use('/api/v2/bills', billsCachedRouter); // Database-cached version
 app.use('/api/members', membersRouter);
 app.use('/api/votes', votesRouter);
 app.use('/api/committees', committeesRouter);
