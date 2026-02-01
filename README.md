@@ -1,7 +1,7 @@
 # 🇺🇸 Northstar - Congressional Intelligence Platform
 
-**Status:** ✅ FOUNDATION COMPLETE & WORKING  
-**Progress:** 14/183 features (7.7%)  
+**Status:** ✅ PHASE 1 COMPLETE - All Congress.gov Routes Working  
+**Progress:** 22/183 features (12%)  
 **Vision:** The intelligence platform for the United States Congress  
 **Strategy:** Full-blown enterprise product, not MVP  
 **Target:** Million-dollar government contracts
@@ -43,10 +43,14 @@ curl "http://localhost:3000/api/members?state=CA&party=D"
 
 ## ✅ What's Working Now
 
-### Backend API (14 endpoints live)
-- **Bills:** search, details, text, actions, cosponsors, amendments, summaries
-- **Members:** search, details, sponsored bills, cosponsored bills
-- **Congress.gov:** Full integration with official API
+### Backend API (22 endpoints live) ✅
+- **Bills (10 endpoints):** search, details, text, actions, cosponsors, amendments, related, subjects, summaries
+- **Members (4 endpoints):** search, details, sponsored bills, cosponsored bills
+- **Votes (2 endpoints):** search votes, get roll-call details
+- **Committees (3 endpoints):** get all committees, committee details, committee bills
+- **Amendments (2 endpoints):** search amendments, amendment details
+- **Hearings (1 endpoint):** search congressional hearings
+- **Congress.gov:** Complete integration with official API
 - **Security:** Helmet, CORS, rate limiting
 - **TypeScript:** 183 type definitions, strict mode
 
