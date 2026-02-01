@@ -329,7 +329,7 @@ model BillAction {
   billId               String    @map("bill_id")
   
   actionDate           DateTime  @map("action_date") @db.Date
-  actionTime           String?   @map("action_time") @db.Time
+  actionTime           String?   @map("action_time")
   actionText           String    @map("action_text") @db.Text
   actionCode           String?   @map("action_code")
   chamber              String?   // 'house', 'senate', NULL
@@ -479,6 +479,7 @@ model FederalSpending {
   id                   Int       @id @default(autoincrement())
   state                String
   districtNumber       Int       @map("district_number")
+  congress             Int       // Added to match District relation
   fiscalYear           Int       @map("fiscal_year")
   
   // Spending Categories
@@ -498,9 +499,9 @@ model FederalSpending {
   createdAt            DateTime  @default(now()) @map("created_at")
   
   // Relations
-  district             District? @relation(fields: [state, districtNumber], references: [state, districtNumber])
+  district             District? @relation(fields: [state, districtNumber, congress], references: [state, districtNumber, congress])
   
-  @@unique([state, districtNumber, fiscalYear])
+  @@unique([state, districtNumber, congress, fiscalYear])
   @@index([state])
   @@index([fiscalYear])
   @@map("federal_spending")

@@ -4,11 +4,10 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { getCongressService } from '../services/congress.service';
+import { dbService } from '../services/db.service';
 import type { MemberSearchParams } from '../types';
 
 const router = Router();
-const congressService = getCongressService();
 
 /**
  * GET /api/members
@@ -27,7 +26,7 @@ router.get('/', async (req: Request, res: Response) => {
       limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 20,
     };
 
-    const result = await congressService.searchMembers(params);
+    const result = await dbService.getMembers(params);
 
     if (!result.success) {
       return res.status(500).json({
