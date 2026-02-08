@@ -91,7 +91,23 @@ export const billsApi = {
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset) query.append('offset', params.offset.toString());
     
-    return fetchApi<Bill[]>(`/bills?${query.toString()}`);
+    const response = await fetchApi<any>(`/bills?${query.toString()}`);
+    
+    // Map database fields to API interface
+    if (response.data) {
+      response.data = response.data.map((bill: any) => ({
+        ...bill,
+        type: bill.billType,
+        number: bill.billNumber,
+        latestAction: {
+          actionDate: bill.latestActionDate,
+          text: bill.latestActionText,
+        },
+        url: bill.congressGovUrl,
+      }));
+    }
+    
+    return response as ApiResponse<Bill[]>;
   },
   
   getDetails: async (congress: number, billType: string, billNumber: number) => {
@@ -145,7 +161,19 @@ export const votesApi = {
     if (params.limit) query.append('limit', params.limit.toString());
     if (params.offset) query.append('offset', params.offset.toString());
     
-    return fetchApi<Vote[]>(`/votes?${query.toString()}`);
+    const response = await fetchApi<any>(`/votes?${query.toString()}`);
+    
+    // Map database fields to API interface
+    if (response.data) {
+      response.data = response.data.map((vote: any) => ({
+        ...vote,
+        date: vote.voteDate,
+        question: vote.voteQuestion,
+        result: vote.voteResult,
+      }));
+    }
+    
+    return response as ApiResponse<Vote[]>;
   },
 };
 
@@ -165,9 +193,34 @@ export const committeesApi = {
   },
 };
 
+// Stats API
+export const statsApi = {
+  get: async (): Promise<ApiResponse<{
+    counts: {
+      bills: number;
+      members: number;
+      committees: number;
+      votes: number;
+      amendments: number;
+      hearings: number;
+      lobbyingReports: number;
+      campaignContributions: number;
+    };
+    lastSync: {
+      bills: string | null;
+      members: string | null;
+      votes: string | null;
+    };
+    congress: number;
+  }>> => {
+    return fetchApi('/stats');
+  },
+};
+
 export default {
   bills: billsApi,
   members: membersApi,
   votes: votesApi,
   committees: committeesApi,
+  stats: statsApi,
 };

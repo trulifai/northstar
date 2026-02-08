@@ -1,16 +1,34 @@
 /**
  * Database Sync Service
- * Syncs Congressional data from Congress.gov API to PostgreSQL database
+ * Full sync from Congress.gov API to PostgreSQL with incremental support
  */
 
 import { PrismaClient } from '@prisma/client';
 import { CongressService } from './congress.service';
 import config from '../config';
+import { createLogger } from '../lib/logger';
+
+const logger = createLogger('sync-service');
+
+interface SyncOptions {
+  congress?: number;
+  maxItems?: number;       // 0 = unlimited
+  fromDateTime?: string;   // ISO date for incremental sync
+  delayMs?: number;        // Rate limit delay between API calls
+}
+
+interface SyncResult {
+  entity: string;
+  synced: number;
+  errors: number;
+  duration: number;
+}
 
 export class SyncService {
   private prisma: PrismaClient;
   private congressService: CongressService;
-  private currentCongress = 118; // Current Congress session
+  private defaultCongress = 118;
+  private defaultDelay = 500; // 500ms between requests to respect rate limits
 
   constructor() {
     this.prisma = new PrismaClient();
@@ -20,94 +38,152 @@ export class SyncService {
   /**
    * Full sync - all entities
    */
-  async syncAll(): Promise<void> {
-    console.log('🚀 Starting full database sync...');
+  async syncAll(options: SyncOptions = {}): Promise<SyncResult[]> {
+    logger.info('Starting full database sync...', options);
+    const results: SyncResult[] = [];
+
+    try {
+      results.push(await this.syncMembers(options));
+      results.push(await this.syncBills(options));
+      results.push(await this.syncCommittees(options));
+      results.push(await this.syncVotes({ ...options, chamber: 'house' }));
+      results.push(await this.syncVotes({ ...options, chamber: 'senate' }));
+
+      logger.info('Full sync completed', { results });
+      return results;
+    } catch (error) {
+      logger.error('Full sync failed', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sync Members of Congress with full pagination
+   */
+  async syncMembers(options: SyncOptions = {}): Promise<SyncResult> {
     const startTime = Date.now();
+    const { maxItems = 0, delayMs = this.defaultDelay } = options;
+    let totalSynced = 0;
+    let errors = 0;
+    let offset = 0;
+    const limit = 250; // Congress.gov max per page
+
+    logger.info('Syncing members...');
 
     try {
-      await this.syncMembers();
-      await this.syncBills();
-      await this.syncCommittees();
-      await this.syncVotes();
-      
-      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-      console.log(`✅ Full sync completed in ${duration}s`);
-    } catch (error) {
-      console.error('❌ Sync failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Sync Members of Congress
-   */
-  async syncMembers(): Promise<void> {
-    console.log('📋 Syncing members...');
-    
-    try {
-      // Fetch current members from both chambers
-      const houseResponse = await this.congressService.getMembersByState();
-      const senateResponse = await this.congressService.getMembersByState();
-
-      if (!houseResponse.success || !senateResponse.success) {
-        throw new Error('Failed to fetch members');
-      }
-
-      // For demo purposes, let's sync first 50 members
-      // In production, you'd paginate through all members
-      const membersToSync = 50;
-      let syncedCount = 0;
-
-      // Simplified sync - in production you'd parse the full member list
-      console.log(`ℹ️  Syncing ${membersToSync} members (demo mode)...`);
-      
-      // Mark sync complete
-      console.log(`✅ Synced ${syncedCount} members`);
-    } catch (error) {
-      console.error('❌ Member sync failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Sync Bills for current Congress
-   */
-  async syncBills(congress: number = this.currentCongress): Promise<void> {
-    console.log(`📜 Syncing bills for Congress ${congress}...`);
-    
-    try {
-      let offset = 0;
-      const limit = 20;
-      let totalSynced = 0;
       let hasMore = true;
 
-      while (hasMore && totalSynced < 100) { // Limit to 100 for demo
-        const response = await this.congressService.searchBills({
-          congress,
-          offset,
+      while (hasMore) {
+        if (maxItems > 0 && totalSynced >= maxItems) break;
+
+        const response = await this.congressService.searchMembers({
+          currentMember: true,
           limit,
+          offset,
         });
 
-        if (!response.success || !response.data?.data) {
-          break;
+        if (!response.success || !response.data?.data?.length) break;
+
+        const members = response.data.data;
+
+        for (const member of members) {
+          try {
+            await this.prisma.member.upsert({
+              where: { bioguideId: member.bioguideId },
+              update: {
+                firstName: member.firstName || '',
+                lastName: member.lastName || '',
+                fullName: member.fullName || `${member.firstName} ${member.lastName}`,
+                party: member.party || '',
+                state: member.state || '',
+                district: member.district || null,
+                chamber: member.chamber || '',
+                currentMember: true,
+                lastSyncedAt: new Date(),
+              },
+              create: {
+                bioguideId: member.bioguideId,
+                firstName: member.firstName || '',
+                lastName: member.lastName || '',
+                fullName: member.fullName || `${member.firstName} ${member.lastName}`,
+                party: member.party || '',
+                state: member.state || '',
+                district: member.district || null,
+                chamber: member.chamber || '',
+                currentMember: true,
+                lastSyncedAt: new Date(),
+              },
+            });
+            totalSynced++;
+          } catch (err) {
+            errors++;
+            logger.warn(`Failed to sync member ${member.bioguideId}`, err);
+          }
         }
 
+        hasMore = response.data.pagination.hasMore;
+        offset += limit;
+        logger.info(`Synced ${totalSynced} members so far...`);
+
+        if (hasMore) await this.delay(delayMs);
+      }
+    } catch (error) {
+      logger.error('Member sync failed', error);
+      throw error;
+    }
+
+    const result = { entity: 'members', synced: totalSynced, errors, duration: Date.now() - startTime };
+    logger.info('Member sync completed', result);
+    return result;
+  }
+
+  /**
+   * Sync Bills with full pagination and relationship data
+   */
+  async syncBills(options: SyncOptions = {}): Promise<SyncResult> {
+    const startTime = Date.now();
+    const {
+      congress = this.defaultCongress,
+      maxItems = 0,
+      fromDateTime,
+      delayMs = this.defaultDelay,
+    } = options;
+    let totalSynced = 0;
+    let errors = 0;
+    let offset = 0;
+    const limit = 250;
+
+    logger.info(`Syncing bills for Congress ${congress}...`, { fromDateTime });
+
+    try {
+      let hasMore = true;
+
+      while (hasMore) {
+        if (maxItems > 0 && totalSynced >= maxItems) break;
+
+        const searchParams: any = { congress, offset, limit };
+        if (fromDateTime) {
+          searchParams.fromDateTime = fromDateTime;
+        }
+
+        const response = await this.congressService.searchBills(searchParams);
+
+        if (!response.success || !response.data?.data?.length) break;
+
         const bills = response.data.data;
-        
+
         for (const billData of bills) {
           try {
-            // Get detailed bill information
-            const billType = billData.type?.toLowerCase() || '';
+            const billType = (billData.type?.toLowerCase() || '').replace(/\./g, '');
             const billNumber = billData.number || 0;
             const billId = `${billType}${billNumber}-${congress}`;
 
-            // Upsert bill to database
             await this.prisma.bill.upsert({
               where: { billId },
               update: {
                 title: billData.title || null,
-                latestActionDate: billData.latestAction?.actionDate 
-                  ? new Date(billData.latestAction.actionDate) 
+                latestActionDate: billData.latestAction?.actionDate
+                  ? new Date(billData.latestAction.actionDate)
                   : null,
                 latestActionText: billData.latestAction?.text || null,
                 congressGovUrl: billData.url || null,
@@ -119,11 +195,11 @@ export class SyncService {
                 billType,
                 billNumber,
                 title: billData.title || null,
-                introducedDate: billData.introducedDate 
-                  ? new Date(billData.introducedDate) 
+                introducedDate: billData.introducedDate
+                  ? new Date(billData.introducedDate)
                   : null,
-                latestActionDate: billData.latestAction?.actionDate 
-                  ? new Date(billData.latestAction.actionDate) 
+                latestActionDate: billData.latestAction?.actionDate
+                  ? new Date(billData.latestAction.actionDate)
                   : null,
                 latestActionText: billData.latestAction?.text || null,
                 congressGovUrl: billData.url || null,
@@ -132,166 +208,350 @@ export class SyncService {
             });
 
             totalSynced++;
-          } catch (billError) {
-            console.error(`⚠️  Failed to sync bill ${billData.number}:`, billError);
+          } catch (err) {
+            errors++;
+            logger.warn(`Failed to sync bill ${billData.number}`, err);
           }
         }
 
-        console.log(`  ✓ Synced ${totalSynced} bills...`);
-
-        hasMore = bills.length === limit;
+        hasMore = response.data.pagination.hasMore;
         offset += limit;
+        logger.info(`Synced ${totalSynced} bills so far...`);
 
-        // Rate limiting - wait 1 second between requests
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (hasMore) await this.delay(delayMs);
       }
-
-      console.log(`✅ Synced ${totalSynced} bills for Congress ${congress}`);
     } catch (error) {
-      console.error('❌ Bill sync failed:', error);
+      logger.error('Bill sync failed', error);
       throw error;
+    }
+
+    const result = { entity: 'bills', synced: totalSynced, errors, duration: Date.now() - startTime };
+    logger.info('Bill sync completed', result);
+    return result;
+  }
+
+  /**
+   * Sync bill details (cosponsors, actions, subjects) for bills already in DB
+   */
+  async syncBillDetails(options: SyncOptions & { batchSize?: number } = {}): Promise<SyncResult> {
+    const startTime = Date.now();
+    const { batchSize = 50, delayMs = this.defaultDelay } = options;
+    let totalSynced = 0;
+    let errors = 0;
+
+    logger.info('Syncing bill details (cosponsors, actions, subjects)...');
+
+    // Get bills that need detail sync (no sponsor info yet)
+    const bills = await this.prisma.bill.findMany({
+      where: { sponsorBioguideId: null },
+      select: { billId: true, congress: true, billType: true, billNumber: true },
+      take: batchSize,
+      orderBy: { latestActionDate: 'desc' },
+    });
+
+    for (const bill of bills) {
+      try {
+        // Fetch full bill details from Congress.gov
+        const detailResponse = await this.congressService.getBillDetails(
+          bill.congress, bill.billType, bill.billNumber
+        );
+
+        if (!detailResponse.success || !detailResponse.data) continue;
+
+        const details = detailResponse.data;
+
+        // Update bill with sponsor and policy area
+        const sponsor = details.sponsors?.[0];
+        await this.prisma.bill.update({
+          where: { billId: bill.billId },
+          data: {
+            sponsorBioguideId: sponsor?.bioguideId || null,
+            policyArea: details.policyArea?.name || null,
+            status: this.inferStatus(details),
+            lastSyncedAt: new Date(),
+          },
+        });
+
+        // Sync cosponsors
+        if (details.cosponsors?.length) {
+          await this.syncCosponsorsForBill(bill.billId, details.cosponsors);
+        }
+
+        // Sync actions
+        if (details.actions?.length) {
+          await this.syncActionsForBill(bill.billId, details.actions);
+        }
+
+        totalSynced++;
+        await this.delay(delayMs);
+      } catch (err) {
+        errors++;
+        logger.warn(`Failed to sync details for ${bill.billId}`, err);
+      }
+    }
+
+    const result = { entity: 'bill-details', synced: totalSynced, errors, duration: Date.now() - startTime };
+    logger.info('Bill detail sync completed', result);
+    return result;
+  }
+
+  private async syncCosponsorsForBill(billId: string, cosponsors: any[]): Promise<void> {
+    for (const cosponsor of cosponsors) {
+      if (!cosponsor.bioguideId) continue;
+      try {
+        await this.prisma.cosponsor.upsert({
+          where: {
+            billId_memberBioguideId: { billId, memberBioguideId: cosponsor.bioguideId },
+          },
+          update: {
+            sponsoredDate: cosponsor.sponsorshipDate ? new Date(cosponsor.sponsorshipDate) : null,
+            isOriginalCosponsor: cosponsor.isOriginalCosponsor || false,
+          },
+          create: {
+            billId,
+            memberBioguideId: cosponsor.bioguideId,
+            sponsoredDate: cosponsor.sponsorshipDate ? new Date(cosponsor.sponsorshipDate) : null,
+            isOriginalCosponsor: cosponsor.isOriginalCosponsor || false,
+          },
+        });
+      } catch {
+        // Member may not exist in DB yet; skip
+      }
+    }
+  }
+
+  private async syncActionsForBill(billId: string, actions: any[]): Promise<void> {
+    // Delete existing actions and re-insert (simpler than diff)
+    await this.prisma.billAction.deleteMany({ where: { billId } });
+
+    for (const action of actions) {
+      try {
+        await this.prisma.billAction.create({
+          data: {
+            billId,
+            actionDate: new Date(action.actionDate),
+            actionTime: action.actionTime || null,
+            actionText: action.text || '',
+            actionCode: action.actionCode || null,
+            chamber: action.sourceSystem?.name?.toLowerCase()?.includes('senate') ? 'senate'
+              : action.sourceSystem?.name?.toLowerCase()?.includes('house') ? 'house'
+              : null,
+            actionType: action.type || null,
+          },
+        });
+      } catch {
+        // Skip individual action errors
+      }
     }
   }
 
   /**
-   * Sync Committees
+   * Sync Committees (House + Senate)
    */
-  async syncCommittees(): Promise<void> {
-    console.log('🏛️  Syncing committees...');
-    
+  async syncCommittees(options: SyncOptions = {}): Promise<SyncResult> {
+    const startTime = Date.now();
+    const { delayMs = this.defaultDelay } = options;
+    let totalSynced = 0;
+    let errors = 0;
+
+    logger.info('Syncing committees...');
+
     try {
-      // Sync House committees
-      const houseResponse = await this.congressService.getCommittees('house', this.currentCongress);
-      // Sync Senate committees
-      const senateResponse = await this.congressService.getCommittees('senate', this.currentCongress);
+      for (const chamber of ['house', 'senate'] as const) {
+        let offset = 0;
+        let hasMore = true;
 
-      let totalSynced = 0;
+        while (hasMore) {
+          const response = await this.congressService.getCommittees(chamber, { offset, limit: 250 });
 
-      if (houseResponse.success && houseResponse.data?.data) {
-        for (const committee of houseResponse.data.data) {
-          try {
-            await this.prisma.committee.upsert({
-              where: { committeeCode: committee.systemCode || committee.name },
-              update: {
-                name: committee.name || '',
-                chamber: 'house',
-              },
-              create: {
-                committeeCode: committee.systemCode || committee.name,
-                name: committee.name || '',
-                chamber: 'house',
-              },
-            });
-            totalSynced++;
-          } catch (err) {
-            console.error(`⚠️  Failed to sync committee:`, err);
+          if (!response.success || !response.data?.data?.length) break;
+
+          for (const committee of response.data.data) {
+            try {
+              const code = committee.systemCode || committee.name;
+              await this.prisma.committee.upsert({
+                where: { committeeCode: code },
+                update: {
+                  name: committee.name || '',
+                  chamber,
+                  committeeType: committee.committeeType || null,
+                },
+                create: {
+                  committeeCode: code,
+                  name: committee.name || '',
+                  chamber,
+                  committeeType: committee.committeeType || null,
+                },
+              });
+              totalSynced++;
+            } catch (err) {
+              errors++;
+              logger.warn(`Failed to sync committee`, err);
+            }
           }
+
+          hasMore = response.data.pagination.hasMore;
+          offset += 250;
+          if (hasMore) await this.delay(delayMs);
         }
       }
-
-      if (senateResponse.success && senateResponse.data?.data) {
-        for (const committee of senateResponse.data.data) {
-          try {
-            await this.prisma.committee.upsert({
-              where: { committeeCode: committee.systemCode || committee.name },
-              update: {
-                name: committee.name || '',
-                chamber: 'senate',
-              },
-              create: {
-                committeeCode: committee.systemCode || committee.name,
-                name: committee.name || '',
-                chamber: 'senate',
-              },
-            });
-            totalSynced++;
-          } catch (err) {
-            console.error(`⚠️  Failed to sync committee:`, err);
-          }
-        }
-      }
-
-      console.log(`✅ Synced ${totalSynced} committees`);
     } catch (error) {
-      console.error('❌ Committee sync failed:', error);
+      logger.error('Committee sync failed', error);
       throw error;
     }
+
+    const result = { entity: 'committees', synced: totalSynced, errors, duration: Date.now() - startTime };
+    logger.info('Committee sync completed', result);
+    return result;
   }
 
   /**
-   * Sync Votes
+   * Sync Votes for a specific chamber with full pagination
    */
-  async syncVotes(congress: number = this.currentCongress): Promise<void> {
-    console.log(`🗳️  Syncing votes for Congress ${congress}...`);
-    
-    try {
-      // Sync recent House votes
-      const houseResponse = await this.congressService.getVotes('house', congress);
-      
-      let totalSynced = 0;
+  async syncVotes(options: SyncOptions & { chamber?: string } = {}): Promise<SyncResult> {
+    const startTime = Date.now();
+    const {
+      congress = this.defaultCongress,
+      chamber = 'house',
+      maxItems = 0,
+      delayMs = this.defaultDelay,
+    } = options;
+    let totalSynced = 0;
+    let errors = 0;
+    let offset = 0;
+    const limit = 250;
 
-      if (houseResponse.success && houseResponse.data?.data) {
-        const votes = houseResponse.data.data.slice(0, 20); // Limit for demo
+    logger.info(`Syncing ${chamber} votes for Congress ${congress}...`);
+
+    try {
+      let hasMore = true;
+
+      while (hasMore) {
+        if (maxItems > 0 && totalSynced >= maxItems) break;
+
+        const response = await this.congressService.searchVotes({
+          congress,
+          chamber: chamber as any,
+          limit,
+          offset,
+        });
+
+        if (!response.success || !response.data?.data?.length) break;
+
+        const votes = response.data.data;
+        const prefix = chamber === 'house' ? 'h' : 's';
 
         for (const vote of votes) {
           try {
-            const voteId = `h${vote.rollNumber}-${congress}`;
-            
+            const voteId = `${prefix}${vote.rollNumber}-${congress}`;
+
             await this.prisma.vote.upsert({
               where: { voteId },
               update: {
                 voteDate: vote.date ? new Date(vote.date) : new Date(),
                 voteQuestion: vote.question || null,
                 voteResult: vote.result || null,
+                yeaTotal: vote.votes?.yea || null,
+                nayTotal: vote.votes?.nay || null,
+                presentTotal: vote.votes?.present || null,
+                notVotingTotal: vote.votes?.notVoting || null,
+                democratYea: vote.party?.democratic?.yea || null,
+                democratNay: vote.party?.democratic?.nay || null,
+                republicanYea: vote.party?.republican?.yea || null,
+                republicanNay: vote.party?.republican?.nay || null,
+                independentYea: vote.party?.independent?.yea || null,
+                independentNay: vote.party?.independent?.nay || null,
               },
               create: {
                 voteId,
                 congress,
-                chamber: 'house',
+                chamber,
                 rollNumber: vote.rollNumber || 0,
                 voteDate: vote.date ? new Date(vote.date) : new Date(),
                 voteQuestion: vote.question || null,
                 voteResult: vote.result || null,
+                yeaTotal: vote.votes?.yea || null,
+                nayTotal: vote.votes?.nay || null,
+                presentTotal: vote.votes?.present || null,
+                notVotingTotal: vote.votes?.notVoting || null,
+                democratYea: vote.party?.democratic?.yea || null,
+                democratNay: vote.party?.democratic?.nay || null,
+                republicanYea: vote.party?.republican?.yea || null,
+                republicanNay: vote.party?.republican?.nay || null,
+                independentYea: vote.party?.independent?.yea || null,
+                independentNay: vote.party?.independent?.nay || null,
               },
             });
 
             totalSynced++;
-          } catch (voteError) {
-            console.error(`⚠️  Failed to sync vote:`, voteError);
+          } catch (err) {
+            errors++;
+            logger.warn(`Failed to sync vote`, err);
           }
         }
+
+        hasMore = response.data.pagination.hasMore;
+        offset += limit;
+        logger.info(`Synced ${totalSynced} ${chamber} votes so far...`);
+
+        if (hasMore) await this.delay(delayMs);
       }
-
-      console.log(`✅ Synced ${totalSynced} votes`);
     } catch (error) {
-      console.error('❌ Vote sync failed:', error);
+      logger.error(`${chamber} vote sync failed`, error);
       throw error;
     }
+
+    const result = { entity: `votes-${chamber}`, synced: totalSynced, errors, duration: Date.now() - startTime };
+    logger.info(`${chamber} vote sync completed`, result);
+    return result;
   }
 
   /**
-   * Incremental sync - only recent updates
+   * Incremental sync - only recent updates since last sync
    */
-  async syncRecent(): Promise<void> {
-    console.log('🔄 Starting incremental sync...');
-    
-    try {
-      // Sync bills from last 7 days
-      await this.syncBills();
-      
-      // Sync recent votes
-      await this.syncVotes();
+  async syncRecent(): Promise<SyncResult[]> {
+    logger.info('Starting incremental sync...');
+    const results: SyncResult[] = [];
 
-      console.log('✅ Incremental sync completed');
-    } catch (error) {
-      console.error('❌ Incremental sync failed:', error);
-      throw error;
-    }
+    // Find the latest sync timestamp
+    const lastBill = await this.prisma.bill.findFirst({
+      orderBy: { lastSyncedAt: 'desc' },
+      select: { lastSyncedAt: true },
+    });
+
+    const fromDateTime = lastBill?.lastSyncedAt
+      ? lastBill.lastSyncedAt.toISOString().split('T')[0]
+      : undefined;
+
+    // Sync recent bills
+    results.push(await this.syncBills({ fromDateTime, maxItems: 500 }));
+
+    // Sync recent votes (both chambers)
+    results.push(await this.syncVotes({ chamber: 'house', maxItems: 100 }));
+    results.push(await this.syncVotes({ chamber: 'senate', maxItems: 100 }));
+
+    // Sync bill details for recent bills
+    results.push(await this.syncBillDetails({ batchSize: 25 }));
+
+    logger.info('Incremental sync completed', { results });
+    return results;
   }
 
-  /**
-   * Cleanup and close connections
-   */
+  private inferStatus(details: any): string {
+    const lastAction = details.latestAction?.text?.toLowerCase() || '';
+    if (lastAction.includes('became public law') || lastAction.includes('signed by president')) return 'became_law';
+    if (lastAction.includes('vetoed')) return 'vetoed';
+    if (lastAction.includes('passed senate')) return 'passed_senate';
+    if (lastAction.includes('passed house')) return 'passed_house';
+    if (lastAction.includes('reported')) return 'reported';
+    if (lastAction.includes('referred to')) return 'referred';
+    return 'introduced';
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
   async close(): Promise<void> {
     await this.prisma.$disconnect();
   }

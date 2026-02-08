@@ -6,7 +6,17 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { billsApi, membersApi, votesApi } from '@/lib/api';
+import { billsApi, membersApi, votesApi, statsApi } from '@/lib/api';
+
+async function getStats() {
+  try {
+    const response = await statsApi.get();
+    return response.data || null;
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+    return null;
+  }
+}
 
 async function getRecentBills() {
   try {
@@ -28,9 +38,24 @@ async function getRecentVotes() {
   }
 }
 
+function formatCount(count: number): string {
+  if (count >= 1000) {
+    return `${(count / 1000).toFixed(1).replace(/\.0$/, '')}k+`;
+  }
+  return count.toLocaleString();
+}
+
 export default async function Home() {
-  const recentBills = await getRecentBills();
-  const recentVotes = await getRecentVotes();
+  const [stats, recentBills, recentVotes] = await Promise.all([
+    getStats(),
+    getRecentBills(),
+    getRecentVotes(),
+  ]);
+
+  const billCount = stats?.counts.bills ?? 0;
+  const memberCount = stats?.counts.members ?? 0;
+  const committeeCount = stats?.counts.committees ?? 0;
+  const voteCount = stats?.counts.votes ?? 0;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -57,37 +82,37 @@ export default async function Home() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>118th Congress</CardDescription>
-            <CardTitle className="text-3xl">13,000+</CardTitle>
+            <CardTitle className="text-3xl">{billCount > 0 ? formatCount(billCount) : '--'}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-gray-600">Bills Introduced</p>
+            <p className="text-sm text-gray-600">Bills Tracked</p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Active Members</CardDescription>
-            <CardTitle className="text-3xl">535</CardTitle>
+            <CardTitle className="text-3xl">{memberCount > 0 ? memberCount.toLocaleString() : '--'}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-gray-600">House + Senate</p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Committees</CardDescription>
-            <CardTitle className="text-3xl">200+</CardTitle>
+            <CardTitle className="text-3xl">{committeeCount > 0 ? committeeCount.toLocaleString() : '--'}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-gray-600">Standing & Select</p>
           </CardContent>
         </Card>
-        
+
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Roll-Call Votes</CardDescription>
-            <CardTitle className="text-3xl">1,000+</CardTitle>
+            <CardTitle className="text-3xl">{voteCount > 0 ? formatCount(voteCount) : '--'}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-gray-600">This Congress</p>
@@ -103,28 +128,33 @@ export default async function Home() {
             <div className="flex items-center justify-between">
               <CardTitle>Recent Bills</CardTitle>
               <Link href="/bills">
-                <Button variant="ghost" size="sm">View All →</Button>
+                <Button variant="ghost" size="sm">View All</Button>
               </Link>
             </div>
             <CardDescription>Latest legislation from the 118th Congress</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {recentBills.length === 0 && (
+                <p className="text-sm text-gray-500">No bills synced yet. Run a data sync to populate.</p>
+              )}
               {recentBills.map((bill, index) => (
                 <div key={index} className="border-b last:border-0 pb-4 last:pb-0">
                   <div className="flex items-start justify-between mb-2">
-                    <Link 
+                    <Link
                       href={`/bills/${bill.congress}/${bill.type}/${bill.number}`}
                       className="font-medium hover:text-blue-600 transition-colors"
                     >
-                      {bill.type.toUpperCase()}.{bill.number}
+                      {bill.type?.toUpperCase() || 'BILL'}.{bill.number}
                     </Link>
                     <Badge variant="outline">{bill.originChamber || 'Congress'}</Badge>
                   </div>
                   <p className="text-sm text-gray-600 line-clamp-2">{bill.title}</p>
-                  <p className="text-xs text-gray-400 mt-2">
-                    {new Date(bill.latestAction.actionDate).toLocaleDateString()}
-                  </p>
+                  {bill.latestAction?.actionDate && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      {new Date(bill.latestAction.actionDate).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -137,21 +167,24 @@ export default async function Home() {
             <div className="flex items-center justify-between">
               <CardTitle>Recent Votes</CardTitle>
               <Link href="/votes">
-                <Button variant="ghost" size="sm">View All →</Button>
+                <Button variant="ghost" size="sm">View All</Button>
               </Link>
             </div>
             <CardDescription>Latest roll-call votes</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {recentVotes.length === 0 && (
+                <p className="text-sm text-gray-500">No votes synced yet. Run a data sync to populate.</p>
+              )}
               {recentVotes.map((vote, index) => (
                 <div key={index} className="border-b last:border-0 pb-4 last:pb-0">
                   <div className="flex items-start justify-between mb-2">
                     <span className="font-medium">
                       {vote.chamber === 'house' ? 'House' : 'Senate'} Roll #{vote.rollNumber}
                     </span>
-                    <Badge variant={vote.result.toLowerCase().includes('pass') ? 'default' : 'secondary'}>
-                      {vote.result}
+                    <Badge variant={vote.result?.toLowerCase().includes('pass') ? 'default' : 'secondary'}>
+                      {vote.result || 'Unknown'}
                     </Badge>
                   </div>
                   <p className="text-sm text-gray-600 line-clamp-2">{vote.question}</p>
@@ -175,9 +208,7 @@ export default async function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                📋 Complete Data
-              </CardTitle>
+              <CardTitle>Complete Data</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-gray-600">
@@ -185,12 +216,10 @@ export default async function Home() {
               </p>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                🤖 AI-Powered
-              </CardTitle>
+              <CardTitle>AI-Powered</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-gray-600">
@@ -198,12 +227,10 @@ export default async function Home() {
               </p>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                📊 Analytics
-              </CardTitle>
+              <CardTitle>Analytics</CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-gray-600">

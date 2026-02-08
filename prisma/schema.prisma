@@ -580,6 +580,78 @@ model Hearing {
 }
 
 // ============================================================================
+// Regulatory & Executive Actions
+// ============================================================================
+
+model ExecutiveOrder {
+  id                   Int       @id @default(autoincrement())
+  documentNumber       String    @unique @map("document_number")
+  eoNumber             String?   @map("eo_number") // 'EO 14110'
+  title                String    @db.Text
+  signingDate          DateTime? @map("signing_date") @db.Date
+  publicationDate      DateTime? @map("publication_date") @db.Date
+  president            String?
+
+  // Content
+  abstract             String?   @db.Text
+  fullTextUrl          String?   @map("full_text_url")
+  pdfUrl               String?   @map("pdf_url")
+  federalRegisterUrl   String?   @map("federal_register_url")
+
+  // Classification
+  topics               Json?     // Array of topic tags
+  agencies             Json?     // Array of agency names
+
+  // Status
+  status               String?   // 'active', 'revoked', 'superseded'
+  revokedBy            String?   @map("revoked_by")
+
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@index([signingDate])
+  @@index([status])
+  @@map("executive_orders")
+}
+
+model RegulatoryRule {
+  id                   Int       @id @default(autoincrement())
+  documentNumber       String    @unique @map("document_number")
+
+  title                String    @db.Text
+  ruleType             String?   @map("rule_type") // 'proposed_rule', 'final_rule', 'notice'
+  agency               String?
+  agencyAcronym        String?   @map("agency_acronym")
+
+  // Dates
+  publicationDate      DateTime? @map("publication_date") @db.Date
+  effectiveDate        DateTime? @map("effective_date") @db.Date
+  commentEndDate       DateTime? @map("comment_end_date") @db.Date
+
+  // Content
+  abstract             String?   @db.Text
+  fullTextUrl          String?   @map("full_text_url")
+  federalRegisterUrl   String?   @map("federal_register_url")
+  regulationsDotGovUrl String?   @map("regulations_dot_gov_url")
+  docketId             String?   @map("docket_id")
+
+  // Public Comments
+  commentCount         Int       @default(0) @map("comment_count")
+
+  // Classification
+  cfr                  Json?     // CFR parts affected
+  topics               Json?
+
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@index([publicationDate])
+  @@index([ruleType])
+  @@index([agency])
+  @@map("regulatory_rules")
+}
+
+// ============================================================================
 // User & Enterprise
 // ============================================================================
 
