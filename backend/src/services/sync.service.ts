@@ -396,7 +396,7 @@ export class SyncService {
     const startTime = Date.now();
     if (!this.congressService) return this.providerDisabledResult('committees', startTime);
 
-    const { delayMs = this.defaultDelay } = options;
+    const { maxItems = 0, delayMs = this.defaultDelay } = options;
     let totalSynced = 0;
     let errors = 0;
 
@@ -413,6 +413,11 @@ export class SyncService {
           if (!response.success || !response.data?.data?.length) break;
 
           for (const committee of response.data.data) {
+            if (maxItems > 0 && totalSynced >= maxItems) {
+              hasMore = false;
+              break;
+            }
+
             try {
               const code = committee.systemCode || committee.name;
               await this.prisma.committee.upsert({
