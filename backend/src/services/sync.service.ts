@@ -103,6 +103,11 @@ export class SyncService {
         const members = response.data.data;
 
         for (const member of members) {
+          if (maxItems > 0 && totalSynced >= maxItems) {
+            hasMore = false;
+            break;
+          }
+
           try {
             await this.prisma.member.upsert({
               where: { bioguideId: member.bioguideId },
@@ -191,6 +196,11 @@ export class SyncService {
         const bills = response.data.data;
 
         for (const billData of bills) {
+          if (maxItems > 0 && totalSynced >= maxItems) {
+            hasMore = false;
+            break;
+          }
+
           try {
             const billType = (billData.type?.toLowerCase() || '').replace(/\./g, '');
             const parsedBillNumber =
@@ -480,6 +490,11 @@ export class SyncService {
         const prefix = chamber === 'house' ? 'h' : 's';
 
         for (const vote of votes) {
+          if (maxItems > 0 && totalSynced >= maxItems) {
+            hasMore = false;
+            break;
+          }
+
           try {
             const voteId = `${prefix}${vote.rollNumber}-${congress}`;
 
