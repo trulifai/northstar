@@ -5,6 +5,7 @@
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import config from '../config';
+import { runtimeConfig } from '../config/runtime';
 import { createLogger } from '../lib/logger';
 import { cache, CacheTTL, buildCacheKey } from '../lib/cache';
 
@@ -14,6 +15,10 @@ class GeminiService {
   private model: ReturnType<GoogleGenerativeAI['getGenerativeModel']> | null = null;
 
   private getModel() {
+    if (!runtimeConfig.providers.gemini) {
+      throw new Error('Gemini integration is disabled in this environment');
+    }
+
     if (!this.model) {
       const apiKey = config.apiKeys.gemini;
       if (!apiKey) {
@@ -26,7 +31,7 @@ class GeminiService {
   }
 
   get isConfigured(): boolean {
-    return !!config.apiKeys.gemini;
+    return runtimeConfig.providers.gemini && !!config.apiKeys.gemini;
   }
 
   /**

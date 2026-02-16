@@ -6,6 +6,7 @@
  */
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
+import { runtimeConfig } from '../config/runtime';
 import type {
   CongressGovResponse,
   CongressGovBill,
@@ -26,12 +27,14 @@ export class CongressService {
   private readonly client: AxiosInstance;
   private readonly baseURL = 'https://api.congress.gov/v3';
   private readonly apiKey: string;
+  private readonly enabled: boolean;
 
-  constructor(apiKey: string) {
-    if (!apiKey) {
+  constructor(apiKey: string, enabled: boolean = true) {
+    if (enabled && !apiKey) {
       throw new Error('Congress.gov API key is required');
     }
 
+    this.enabled = enabled;
     this.apiKey = apiKey;
     this.client = axios.create({
       baseURL: this.baseURL,
@@ -39,14 +42,15 @@ export class CongressService {
       headers: {
         'Accept': 'application/json',
       },
-      params: {
-        api_key: this.apiKey,
-      },
+      params: this.apiKey ? { api_key: this.apiKey } : undefined,
     });
 
     // Request interceptor for logging
     this.client.interceptors.request.use(
       (config) => {
+        if (!this.enabled) {
+          return Promise.reject(new Error('PROVIDER_DISABLED:congressGov'));
+        }
         console.log(`[Congress.gov] ${config.method?.toUpperCase()} ${config.url}`);
         return config;
       },
@@ -759,6 +763,16 @@ export class CongressService {
   // ============================================================================
 
   private handleError(error: unknown): ServiceResponse<never> {
+    if (error instanceof Error && error.message === 'PROVIDER_DISABLED:congressGov') {
+      return {
+        success: false,
+        error: {
+          code: 'PROVIDER_DISABLED',
+          message: 'Congress.gov integration is disabled in this environment.',
+        },
+      };
+    }
+
     if (axios.isAxiosError(error)) {
       const axiosError = error as AxiosError;
       
@@ -787,11 +801,14 @@ let congressService: CongressService | null = null;
 
 export function getCongressService(apiKey?: string): CongressService {
   if (!congressService) {
-    const key = apiKey || process.env.CONGRESS_GOV_API_KEY;
-    if (!key) {
+    const key = apiKey || process.env.CONGRESS_GOV_API_KEY || '';
+    const enabled = runtimeConfig.providers.congressGov;
+
+    if (enabled && !key) {
       throw new Error('Congress.gov API key not provided');
     }
-    congressService = new CongressService(key);
+
+    congressService = new CongressService(key, enabled);
   }
   return congressService;
 }

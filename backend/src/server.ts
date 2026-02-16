@@ -8,7 +8,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import config from './config';
+import { runtimeConfig } from './config/runtime';
 import { createLogger } from './lib/logger';
+import { isProviderEnabled, providerStatus, sendDemoSyncBlocked, sendProviderDisabled } from './lib/runtimeGuards';
 import { requestIdMiddleware } from './middleware/requestId';
 import { errorHandler } from './middleware/errorHandler';
 
@@ -86,6 +88,51 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // ============================================================================
+// Runtime Dependency Guards
+// ============================================================================
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const path = req.path;
+  const isPost = req.method === 'POST';
+
+  const congressGuardedPath =
+    path.startsWith('/api/amendments') ||
+    path.startsWith('/api/hearings') ||
+    (path.startsWith('/api/members/') && path !== '/api/members');
+
+  if (congressGuardedPath && !isProviderEnabled('congressGov')) {
+    return sendProviderDisabled(res, 'congressGov');
+  }
+
+  const geminiGuardedPath =
+    (isPost && path.endsWith('/api/intelligence/batch/summarize')) ||
+    (isPost && path.startsWith('/api/intelligence/bills/') && path.endsWith('/summarize'));
+
+  if (geminiGuardedPath && !isProviderEnabled('gemini')) {
+    return sendProviderDisabled(res, 'gemini');
+  }
+
+  const syncGuards: Array<{ match: boolean; provider: 'newsRss' | 'federalRegister' | 'fec' | 'lda' }> = [
+    { match: isPost && path === '/api/news/sync', provider: 'newsRss' },
+    { match: isPost && path.startsWith('/api/regulatory/sync/'), provider: 'federalRegister' },
+    { match: isPost && path === '/api/finance/sync', provider: 'fec' },
+    { match: isPost && path === '/api/lobbying/sync', provider: 'lda' },
+  ];
+
+  const matchedSyncGuard = syncGuards.find((guard) => guard.match);
+  if (matchedSyncGuard) {
+    if (runtimeConfig.demoMode) {
+      return sendDemoSyncBlocked(res, matchedSyncGuard.provider);
+    }
+    if (!isProviderEnabled(matchedSyncGuard.provider)) {
+      return sendProviderDisabled(res, matchedSyncGuard.provider);
+    }
+  }
+
+  return next();
+});
+
+// ============================================================================
 // Health Check
 // ============================================================================
 
@@ -101,6 +148,10 @@ app.get('/health', (_req: Request, res: Response) => {
       redis: config.redis ? 'configured' : 'not configured',
       cache: config.cache.enabled ? 'enabled' : 'disabled',
     },
+    runtime: {
+      demoMode: runtimeConfig.demoMode ? 'enabled' : 'disabled',
+      providers: providerStatus(),
+    },
   });
 });
 
@@ -114,6 +165,10 @@ app.get('/api', (_req: Request, res: Response) => {
     version: '1.0.0',
     description: 'Unified government data engine for legislative intelligence',
     status: 'operational',
+    runtime: {
+      demoMode: runtimeConfig.demoMode ? 'enabled' : 'disabled',
+      providers: providerStatus(),
+    },
     endpoints: {
       bills: { base: '/api/bills', description: 'Bills & legislation' },
       members: { base: '/api/members', description: 'Members of Congress' },
@@ -209,6 +264,8 @@ app.listen(PORT, () => {
     port: PORT,
     congressGov: !!config.apiKeys.congressGov,
     gemini: !!config.apiKeys.gemini,
+    demoMode: runtimeConfig.demoMode,
+    providers: providerStatus(),
     redis: !!config.redis,
     cacheEnabled: config.cache.enabled,
   });
@@ -224,6 +281,7 @@ app.listen(PORT, () => {
   console.log(`  Health:       http://localhost:${PORT}/health`);
   console.log(`  Stats:        http://localhost:${PORT}/api/stats`);
   console.log('');
+  console.log(`  Demo Mode:    ${runtimeConfig.demoMode ? 'Enabled' : 'Disabled'}`);
   console.log(`  Congress.gov: ${config.apiKeys.congressGov ? 'Connected' : 'Not configured'}`);
   console.log(`  Gemini AI:    ${config.apiKeys.gemini ? 'Connected' : 'Not configured'}`);
   console.log(`  Cache:        ${config.cache.enabled ? 'Enabled' : 'Disabled'}`);

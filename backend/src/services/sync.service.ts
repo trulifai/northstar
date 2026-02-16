@@ -6,6 +6,7 @@
 import { PrismaClient } from '@prisma/client';
 import { CongressService } from './congress.service';
 import config from '../config';
+import { runtimeConfig } from '../config/runtime';
 import { createLogger } from '../lib/logger';
 
 const logger = createLogger('sync-service');
@@ -25,14 +26,16 @@ interface SyncResult {
 }
 
 export class SyncService {
-  private prisma: PrismaClient;
-  private congressService: CongressService;
-  private defaultCongress = 118;
-  private defaultDelay = 500; // 500ms between requests to respect rate limits
+  private readonly prisma: PrismaClient;
+  private readonly congressService: CongressService | null;
+  private readonly defaultCongress = 118;
+  private readonly defaultDelay = 500; // 500ms between requests to respect rate limits
 
   constructor() {
     this.prisma = new PrismaClient();
-    this.congressService = new CongressService(config.apiKeys.congressGov);
+    this.congressService = runtimeConfig.providers.congressGov
+      ? new CongressService(config.apiKeys.congressGov, true)
+      : null;
   }
 
   /**
@@ -62,6 +65,8 @@ export class SyncService {
    */
   async syncMembers(options: SyncOptions = {}): Promise<SyncResult> {
     const startTime = Date.now();
+    if (!this.congressService) return this.providerDisabledResult('members', startTime);
+
     const { maxItems = 0, delayMs = this.defaultDelay } = options;
     let totalSynced = 0;
     let errors = 0;
@@ -142,6 +147,8 @@ export class SyncService {
    */
   async syncBills(options: SyncOptions = {}): Promise<SyncResult> {
     const startTime = Date.now();
+    if (!this.congressService) return this.providerDisabledResult('bills', startTime);
+
     const {
       congress = this.defaultCongress,
       maxItems = 0,
@@ -235,6 +242,8 @@ export class SyncService {
    */
   async syncBillDetails(options: SyncOptions & { batchSize?: number } = {}): Promise<SyncResult> {
     const startTime = Date.now();
+    if (!this.congressService) return this.providerDisabledResult('bill-details', startTime);
+
     const { batchSize = 50, delayMs = this.defaultDelay } = options;
     let totalSynced = 0;
     let errors = 0;
@@ -350,6 +359,8 @@ export class SyncService {
    */
   async syncCommittees(options: SyncOptions = {}): Promise<SyncResult> {
     const startTime = Date.now();
+    if (!this.congressService) return this.providerDisabledResult('committees', startTime);
+
     const { delayMs = this.defaultDelay } = options;
     let totalSynced = 0;
     let errors = 0;
@@ -410,6 +421,8 @@ export class SyncService {
    */
   async syncVotes(options: SyncOptions & { chamber?: string } = {}): Promise<SyncResult> {
     const startTime = Date.now();
+    if (!this.congressService) return this.providerDisabledResult(`votes-${options.chamber || 'house'}`, startTime);
+
     const {
       congress = this.defaultCongress,
       chamber = 'house',
@@ -510,6 +523,10 @@ export class SyncService {
    * Incremental sync - only recent updates since last sync
    */
   async syncRecent(): Promise<SyncResult[]> {
+    if (!this.congressService) {
+      return [this.providerDisabledResult('recent-sync', Date.now())];
+    }
+
     logger.info('Starting incremental sync...');
     const results: SyncResult[] = [];
 
@@ -550,6 +567,16 @@ export class SyncService {
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private providerDisabledResult(entity: string, startTime: number): SyncResult {
+    logger.warn(`Skipping ${entity} sync because Congress.gov integration is disabled.`);
+    return {
+      entity,
+      synced: 0,
+      errors: 0,
+      duration: Date.now() - startTime,
+    };
   }
 
   async close(): Promise<void> {
