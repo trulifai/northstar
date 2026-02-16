@@ -23,6 +23,41 @@ import type {
   PaginatedResponse
 } from '../types';
 
+interface HouseVotePartyTotal {
+  voteParty?: string;
+  yeaTotal?: number;
+  nayTotal?: number;
+  presentTotal?: number;
+  notVotingTotal?: number;
+}
+
+interface HouseRollCallVote {
+  congress: number;
+  sessionNumber: number;
+  rollCallNumber: number;
+  startDate: string;
+  result?: string;
+  voteQuestion?: string;
+  voteType?: string;
+  legislationType?: string;
+  legislationNumber?: string;
+  votePartyTotal?: HouseVotePartyTotal[];
+}
+
+interface HouseRollCallVoteListResponse {
+  houseRollCallVotes: HouseRollCallVote[];
+  pagination?: {
+    count: number;
+    next?: string;
+  };
+}
+
+interface HouseRollCallVoteDetailResponse {
+  houseRollCallVote: HouseRollCallVote;
+}
+
+type VoteBillType = NonNullable<Vote['bill']>['billType'];
+
 export class CongressService {
   private readonly client: AxiosInstance;
   private readonly baseURL = 'https://api.congress.gov/v3';
@@ -592,6 +627,104 @@ export class CongressService {
   // Votes
   // ============================================================================
 
+  private normalizeVoteResult(value?: string): Vote['result'] {
+    if (!value) return 'Passed';
+    if (value === 'Passed' || value === 'Failed' || value === 'Agreed to' || value === 'Rejected') {
+      return value;
+    }
+
+    const lower = value.toLowerCase();
+    if (lower.includes('fail')) return 'Failed';
+    if (lower.includes('reject')) return 'Rejected';
+    if (lower.includes('agree')) return 'Agreed to';
+    return 'Passed';
+  }
+
+  private normalizeBillType(value?: string): VoteBillType | undefined {
+    if (!value) return undefined;
+    const normalized = value.trim().toLowerCase();
+    const billTypes: VoteBillType[] = [
+      'hr',
+      's',
+      'hjres',
+      'sjres',
+      'hconres',
+      'sconres',
+      'hres',
+      'sres',
+    ];
+
+    return billTypes.includes(normalized as VoteBillType)
+      ? (normalized as VoteBillType)
+      : undefined;
+  }
+
+  private mapHouseVoteToVote(houseVote: HouseRollCallVote): Vote {
+    const partyTotals = houseVote.votePartyTotal || [];
+    const byParty = (code: string): HouseVotePartyTotal | undefined =>
+      partyTotals.find((entry) => entry.voteParty?.toUpperCase() === code);
+
+    const democratic = byParty('D');
+    const republican = byParty('R');
+    const independent = byParty('I');
+
+    const voteTotals = {
+      yea: partyTotals.reduce((sum, entry) => sum + (entry.yeaTotal || 0), 0),
+      nay: partyTotals.reduce((sum, entry) => sum + (entry.nayTotal || 0), 0),
+      present: partyTotals.reduce((sum, entry) => sum + (entry.presentTotal || 0), 0),
+      notVoting: partyTotals.reduce((sum, entry) => sum + (entry.notVotingTotal || 0), 0),
+    };
+
+    const billType = this.normalizeBillType(houseVote.legislationType);
+    const parsedBillNumber = houseVote.legislationNumber
+      ? parseInt(houseVote.legislationNumber, 10)
+      : Number.NaN;
+    const hasBillNumber = Number.isFinite(parsedBillNumber);
+
+    const partyBreakdown: Vote['party'] = {};
+    if (democratic && ((democratic.yeaTotal || 0) > 0 || (democratic.nayTotal || 0) > 0)) {
+      partyBreakdown.democratic = {
+        yea: democratic.yeaTotal || 0,
+        nay: democratic.nayTotal || 0,
+      };
+    }
+    if (republican && ((republican.yeaTotal || 0) > 0 || (republican.nayTotal || 0) > 0)) {
+      partyBreakdown.republican = {
+        yea: republican.yeaTotal || 0,
+        nay: republican.nayTotal || 0,
+      };
+    }
+    if (independent && ((independent.yeaTotal || 0) > 0 || (independent.nayTotal || 0) > 0)) {
+      partyBreakdown.independent = {
+        yea: independent.yeaTotal || 0,
+        nay: independent.nayTotal || 0,
+      };
+    }
+
+    return {
+      congress: houseVote.congress,
+      chamber: 'house',
+      session: houseVote.sessionNumber || 1,
+      rollNumber: houseVote.rollCallNumber,
+      date: houseVote.startDate || new Date().toISOString(),
+      question: houseVote.voteQuestion || houseVote.voteType || 'House vote',
+      result: this.normalizeVoteResult(houseVote.result),
+      bill: billType && hasBillNumber
+        ? {
+            billType,
+            billNumber: parsedBillNumber,
+          }
+        : undefined,
+      votes: voteTotals,
+      party: Object.keys(partyBreakdown).length > 0 ? partyBreakdown : undefined,
+    };
+  }
+
+  private getCurrentCongress(): number {
+    const currentYear = new Date().getFullYear();
+    return Math.floor((currentYear - 1789) / 2) + 1;
+  }
+
   /**
    * Search votes
    */
@@ -599,27 +732,39 @@ export class CongressService {
     try {
       const { offset = 0, limit = 20, congress, chamber } = params;
 
-      let endpoint = '/vote';
-      if (congress && chamber) {
-        endpoint = `/vote/${congress}/${chamber}`;
+      if (chamber && chamber !== 'house') {
+        return {
+          success: true,
+          data: {
+            data: [],
+            pagination: {
+              total: 0,
+              offset,
+              limit,
+              hasMore: false,
+            },
+          },
+        };
       }
 
-      const response = await this.client.get<CongressGovResponse<Vote>>(endpoint, {
+      const targetCongress = congress || this.getCurrentCongress();
+      const response = await this.client.get<HouseRollCallVoteListResponse>(`/house-vote/${targetCongress}`, {
         params: { offset, limit },
       });
 
-      const votes = response.data.votes as Vote[];
-      const pagination = response.data.pagination as { count: number };
+      const votes = (response.data.houseRollCallVotes || []).map((vote) => this.mapHouseVoteToVote(vote));
+      const pagination = response.data.pagination;
+      const total = pagination?.count ?? votes.length;
 
       return {
         success: true,
         data: {
           data: votes,
           pagination: {
-            total: pagination.count,
+            total,
             offset,
             limit,
-            hasMore: (offset + limit) < pagination.count,
+            hasMore: (offset + limit) < total,
           },
         },
       };
@@ -636,14 +781,43 @@ export class CongressService {
     chamber: string,
     rollNumber: number
   ): Promise<ServiceResponse<Vote>> {
+    if (chamber !== 'house') {
+      return {
+        success: false,
+        error: {
+          code: 'ERR_BAD_REQUEST',
+          message: 'Only House vote details are available in live mode.',
+        },
+      };
+    }
+
     try {
-      const response = await this.client.get<{ vote: Vote }>(
-        `/vote/${congress}/${chamber}/${rollNumber}`
-      );
+      for (const session of [2, 1]) {
+        try {
+          const response = await this.client.get<HouseRollCallVoteDetailResponse>(
+            `/house-vote/${congress}/${session}/${rollNumber}`
+          );
+
+          if (response.data.houseRollCallVote) {
+            return {
+              success: true,
+              data: this.mapHouseVoteToVote(response.data.houseRollCallVote),
+            };
+          }
+        } catch (error) {
+          if (axios.isAxiosError(error) && error.response?.status === 404) {
+            continue;
+          }
+          return this.handleError(error);
+        }
+      }
 
       return {
-        success: true,
-        data: response.data.vote,
+        success: false,
+        error: {
+          code: 'ERR_BAD_REQUEST',
+          message: `Vote ${congress}-house-${rollNumber} not found.`,
+        },
       };
     } catch (error) {
       return this.handleError(error);
