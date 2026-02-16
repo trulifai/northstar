@@ -51,6 +51,7 @@ function printUsage(): void {
   console.log('  votes        - Sync votes only');
   console.log('\nCommon flags for sync jobs:');
   console.log('  --congress=119');
+  console.log('  --max-items=200');
   console.log('  --delay-ms=750');
   console.log('  --from-date=2026-02-15');
   console.log('  --dry-run');
@@ -75,6 +76,7 @@ async function main() {
   );
   const delayMs = readIntFlag(extraArgs, 'delay-ms', process.env.SYNC_DELAY_MS, 750);
   const fromDate = readStringFlag(extraArgs, 'from-date', process.env.SYNC_FROM_DATE);
+  const maxItems = readIntFlag(extraArgs, 'max-items', process.env.SYNC_MAX_ITEMS, 0);
 
   const recentProfile = {
     congress,
@@ -88,6 +90,7 @@ async function main() {
 
   const baseOptions = {
     congress,
+    maxItems,
     delayMs,
     fromDateTime: fromDate,
   };

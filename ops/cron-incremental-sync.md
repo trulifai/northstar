@@ -32,6 +32,12 @@ Requires `DATABASE_URL` and `CONGRESS_GOV_API_KEY`.
 npm run sync:cron
 ```
 
+For bill-only backfill runs, always cap item count:
+
+```bash
+npm run sync:bills -- --congress=119 --from-date=2025-01-01 --max-items=200 --delay-ms=1000
+```
+
 ## 4) Deploy a Cloud Run Job (recommended for cron)
 
 ```bash
