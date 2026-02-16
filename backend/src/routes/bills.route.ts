@@ -37,14 +37,14 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data?.data || [],
       pagination: result.data?.pagination,
     });
   } catch (error) {
     console.error('Error in GET /api/bills:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -80,14 +80,14 @@ router.get('/:congress', async (req: Request, res: Response) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data?.data || [],
       pagination: result.data?.pagination,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -118,13 +118,13 @@ router.get('/:congress/:billType/:billNumber', async (req: Request, res: Respons
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -149,13 +149,13 @@ router.get('/:congress/:billType/:billNumber/text', async (req: Request, res: Re
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber/text:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -185,13 +185,13 @@ router.get('/:congress/:billType/:billNumber/actions', async (req: Request, res:
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber/actions:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -221,13 +221,13 @@ router.get('/:congress/:billType/:billNumber/cosponsors', async (req: Request, r
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber/cosponsors:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -257,13 +257,13 @@ router.get('/:congress/:billType/:billNumber/amendments', async (req: Request, r
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber/amendments:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -288,13 +288,13 @@ router.get('/:congress/:billType/:billNumber/related', async (req: Request, res:
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber/related:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -319,13 +319,13 @@ router.get('/:congress/:billType/:billNumber/subjects', async (req: Request, res
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber/subjects:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -350,13 +350,13 @@ router.get('/:congress/:billType/:billNumber/summaries', async (req: Request, re
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/bills/:congress/:billType/:billNumber/summaries:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });

@@ -282,7 +282,7 @@ export interface HearingFormat {
 // ============================================================================
 
 export interface CongressGovResponse<T> {
-  [key: string]: T[] | { count: number };
+  [key: string]: T[] | { count: number; next?: string } | undefined;
   pagination?: {
     count: number;
     next?: string;
