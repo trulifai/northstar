@@ -23,12 +23,23 @@ interface SyncResult {
   synced: number;
   errors: number;
   duration: number;
+  note?: string;
+}
+
+interface SyncRecentOptions {
+  congress?: number;
+  fromDateTime?: string;
+  delayMs?: number;
+  billsMaxItems?: number;
+  houseVotesMaxItems?: number;
+  senateVotesMaxItems?: number;
+  billDetailsBatchSize?: number;
 }
 
 export class SyncService {
   private readonly prisma: PrismaClient;
   private readonly congressService: CongressService | null;
-  private readonly defaultCongress = 118;
+  private readonly defaultCongress = this.getCurrentCongress();
   private readonly defaultDelay = 500; // 500ms between requests to respect rate limits
 
   constructor() {
@@ -522,13 +533,15 @@ export class SyncService {
   /**
    * Incremental sync - only recent updates since last sync
    */
-  async syncRecent(): Promise<SyncResult[]> {
+  async syncRecent(options: SyncRecentOptions = {}): Promise<SyncResult[]> {
     if (!this.congressService) {
       return [this.providerDisabledResult('recent-sync', Date.now())];
     }
 
     logger.info('Starting incremental sync...');
     const results: SyncResult[] = [];
+    const congress = options.congress || this.defaultCongress;
+    const delayMs = options.delayMs || this.defaultDelay;
 
     // Find the latest sync timestamp
     const lastBill = await this.prisma.bill.findFirst({
@@ -536,21 +549,55 @@ export class SyncService {
       select: { lastSyncedAt: true },
     });
 
-    const fromDateTime = lastBill?.lastSyncedAt
+    const inferredFromDateTime = lastBill?.lastSyncedAt
       ? lastBill.lastSyncedAt.toISOString().split('T')[0]
       : undefined;
+    const fromDateTime = options.fromDateTime || inferredFromDateTime;
+
+    const billsMaxItems = options.billsMaxItems ?? 500;
+    const houseVotesMaxItems = options.houseVotesMaxItems ?? 100;
+    const senateVotesMaxItems = options.senateVotesMaxItems ?? 0;
+    const billDetailsBatchSize = options.billDetailsBatchSize ?? 25;
 
     // Sync recent bills
-    results.push(await this.syncBills({ fromDateTime, maxItems: 500 }));
+    if (billsMaxItems > 0) {
+      results.push(await this.syncBills({ congress, fromDateTime, maxItems: billsMaxItems, delayMs }));
+    } else {
+      results.push(this.skippedResult('bills', 'disabled by sync limits'));
+    }
 
     // Sync recent votes (both chambers)
-    results.push(await this.syncVotes({ chamber: 'house', maxItems: 100 }));
-    results.push(await this.syncVotes({ chamber: 'senate', maxItems: 100 }));
+    if (houseVotesMaxItems > 0) {
+      results.push(await this.syncVotes({ congress, chamber: 'house', maxItems: houseVotesMaxItems, delayMs }));
+    } else {
+      results.push(this.skippedResult('votes-house', 'disabled by sync limits'));
+    }
+
+    if (senateVotesMaxItems > 0) {
+      results.push(await this.syncVotes({ congress, chamber: 'senate', maxItems: senateVotesMaxItems, delayMs }));
+    } else {
+      results.push(this.skippedResult('votes-senate', 'disabled by sync limits'));
+    }
 
     // Sync bill details for recent bills
-    results.push(await this.syncBillDetails({ batchSize: 25 }));
+    if (billDetailsBatchSize > 0) {
+      results.push(await this.syncBillDetails({ batchSize: billDetailsBatchSize, delayMs }));
+    } else {
+      results.push(this.skippedResult('bill-details', 'disabled by sync limits'));
+    }
 
-    logger.info('Incremental sync completed', { results });
+    logger.info('Incremental sync completed', {
+      options: {
+        congress,
+        fromDateTime,
+        delayMs,
+        billsMaxItems,
+        houseVotesMaxItems,
+        senateVotesMaxItems,
+        billDetailsBatchSize,
+      },
+      results,
+    });
     return results;
   }
 
@@ -576,7 +623,23 @@ export class SyncService {
       synced: 0,
       errors: 0,
       duration: Date.now() - startTime,
+      note: 'provider disabled',
     };
+  }
+
+  private skippedResult(entity: string, reason: string): SyncResult {
+    return {
+      entity,
+      synced: 0,
+      errors: 0,
+      duration: 0,
+      note: reason,
+    };
+  }
+
+  private getCurrentCongress(): number {
+    const currentYear = new Date().getFullYear();
+    return Math.floor((currentYear - 1789) / 2) + 1;
   }
 
   async close(): Promise<void> {

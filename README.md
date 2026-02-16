@@ -155,6 +155,7 @@ curl "http://localhost:3000/api/votes?congress=118&limit=5"
 - **[DATABASE.md](./DATABASE.md)** - Complete database schema
 - **[EXECUTIVE_SUMMARY.md](./EXECUTIVE_SUMMARY.md)** - Executive overview
 - **[ENTERPRISE_STRATEGY.md](./ENTERPRISE_STRATEGY.md)** - Business strategy
+- **[ops/cron-incremental-sync.md](./ops/cron-incremental-sync.md)** - Budget-safe incremental sync cron setup
 
 ---
 
