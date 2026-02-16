@@ -13,6 +13,7 @@ import { createLogger } from './lib/logger';
 import { isProviderEnabled, providerStatus, sendDemoSyncBlocked, sendProviderDisabled } from './lib/runtimeGuards';
 import { requestIdMiddleware } from './middleware/requestId';
 import { errorHandler } from './middleware/errorHandler';
+import { dbService } from './services/db.service';
 
 // Routes
 import billsRouter from './routes/bills.cached.route';
@@ -32,6 +33,12 @@ import graphRouter from './routes/graph.route';
 
 const app: Application = express();
 const logger = createLogger('server');
+
+function parseQueryNumber(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
 
 // ============================================================================
 // Security Middleware
@@ -85,6 +92,154 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   });
 
   next();
+});
+
+// ============================================================================
+// Database Fallbacks (when Congress provider is disabled)
+// ============================================================================
+
+app.use(async (req: Request, res: Response, next: NextFunction) => {
+  if (req.method !== 'GET' || isProviderEnabled('congressGov')) {
+    return next();
+  }
+
+  const path = req.path;
+  const offset = parseQueryNumber(req.query.offset) || 0;
+  const limit = Math.min(parseQueryNumber(req.query.limit) || 20, 250);
+
+  try {
+    const memberDetailMatch = /^\/api\/members\/([^/]+)$/.exec(path);
+    if (memberDetailMatch) {
+      const bioguideId = memberDetailMatch[1].toUpperCase();
+      const member = await dbService.getMemberWithRelations(bioguideId);
+
+      if (!member) {
+        return res.status(404).json({
+          success: false,
+          error: {
+            code: 'NOT_FOUND',
+            message: `Member ${bioguideId} not found in local cache.`,
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        data: member,
+        meta: {
+          source: 'database-fallback',
+          provider: 'congressGov',
+        },
+      });
+    }
+
+    const sponsoredMatch = /^\/api\/members\/([^/]+)\/sponsored-bills$/.exec(path);
+    if (sponsoredMatch) {
+      const bioguideId = sponsoredMatch[1].toUpperCase();
+      const congress = parseQueryNumber(req.query.congress);
+      const result = await dbService.getBills({
+        sponsorId: bioguideId,
+        congress,
+        offset,
+        limit,
+      });
+
+      return res.json({
+        success: true,
+        data: result.data,
+        pagination: {
+          total: result.total,
+          offset,
+          limit,
+          hasMore: offset + limit < result.total,
+        },
+        meta: {
+          source: 'database-fallback',
+          provider: 'congressGov',
+        },
+      });
+    }
+
+    const cosponsoredMatch = /^\/api\/members\/([^/]+)\/cosponsored-bills$/.exec(path);
+    if (cosponsoredMatch) {
+      const bioguideId = cosponsoredMatch[1].toUpperCase();
+      const congress = parseQueryNumber(req.query.congress);
+      const result = await dbService.getCosponsoredBills({
+        bioguideId,
+        congress,
+        offset,
+        limit,
+      });
+
+      return res.json({
+        success: true,
+        data: result.data,
+        pagination: {
+          total: result.total,
+          offset,
+          limit,
+          hasMore: offset + limit < result.total,
+        },
+        meta: {
+          source: 'database-fallback',
+          provider: 'congressGov',
+        },
+      });
+    }
+
+    const amendmentListMatch = /^\/api\/amendments\/(\d+)$/.exec(path);
+    if (amendmentListMatch) {
+      const congress = parseInt(amendmentListMatch[1], 10);
+      const result = await dbService.getAmendments({ congress, offset, limit });
+
+      return res.json({
+        success: true,
+        data: result.data,
+        pagination: {
+          total: result.total,
+          offset,
+          limit,
+          hasMore: offset + limit < result.total,
+        },
+        meta: {
+          source: 'database-fallback',
+          provider: 'congressGov',
+        },
+      });
+    }
+
+    if (path === '/api/hearings') {
+      const congress = parseQueryNumber(req.query.congress);
+      const chamber = typeof req.query.chamber === 'string' ? req.query.chamber : undefined;
+      const result = await dbService.getHearings({ congress, chamber, offset, limit });
+
+      return res.json({
+        success: true,
+        data: result.data,
+        pagination: {
+          total: result.total,
+          offset,
+          limit,
+          hasMore: offset + limit < result.total,
+        },
+        meta: {
+          source: 'database-fallback',
+          provider: 'congressGov',
+        },
+      });
+    }
+
+    return next();
+  } catch (error) {
+    logger.error('Database fallback failed', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'DB_FALLBACK_ERROR',
+        message: error instanceof Error ? error.message : 'Failed to serve database fallback response',
+      },
+    });
+  }
 });
 
 // ============================================================================

@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '../lib/prisma';
-import type { Member, Bill, Vote, Committee, Amendment, Cosponsor, BillAction } from '@prisma/client';
+import type { Member, Bill, Vote, Committee, Amendment, Cosponsor, BillAction, Hearing } from '@prisma/client';
 
 export class DatabaseService {
   // =========================================================================
@@ -191,6 +191,35 @@ export class DatabaseService {
     return prisma.bill.findUnique({ where: { billId } });
   }
 
+  async getCosponsoredBills(params: {
+    bioguideId: string;
+    congress?: number;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ data: Bill[]; total: number; cached: boolean }> {
+    const { bioguideId, congress, limit = 20, offset = 0 } = params;
+
+    const where: any = {
+      cosponsors: {
+        some: { memberBioguideId: bioguideId },
+      },
+    };
+
+    if (congress) where.congress = congress;
+
+    const [bills, total] = await Promise.all([
+      prisma.bill.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { latestActionDate: 'desc' },
+      }),
+      prisma.bill.count({ where }),
+    ]);
+
+    return { data: bills, total, cached: true };
+  }
+
   async getBillWithRelations(billId: string) {
     return prisma.bill.findUnique({
       where: { billId },
@@ -353,6 +382,33 @@ export class DatabaseService {
     ]);
 
     return { data: amendments, total, cached: true };
+  }
+
+  async getHearings(params: {
+    congress?: number;
+    chamber?: string;
+    committeeCode?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ data: Hearing[]; total: number; cached: boolean }> {
+    const { congress, chamber, committeeCode, limit = 20, offset = 0 } = params;
+
+    const where: any = {};
+    if (congress) where.congress = congress;
+    if (chamber) where.chamber = chamber;
+    if (committeeCode) where.committeeCode = committeeCode;
+
+    const [hearings, total] = await Promise.all([
+      prisma.hearing.findMany({
+        where,
+        skip: offset,
+        take: limit,
+        orderBy: { hearingDate: 'desc' },
+      }),
+      prisma.hearing.count({ where }),
+    ]);
+
+    return { data: hearings, total, cached: true };
   }
 
   // =========================================================================
