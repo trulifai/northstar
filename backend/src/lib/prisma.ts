@@ -11,8 +11,7 @@ dotenv.config();
 
 // Verify DATABASE_URL is loaded
 if (!process.env.DATABASE_URL) {
-  console.error('❌ DATABASE_URL not found in environment!');
-  console.error('Current env:', process.env);
+  console.warn('DATABASE_URL not set. DB-backed routes will fail unless live API mode is enabled.');
 }
 
 // Create and export Prisma Client

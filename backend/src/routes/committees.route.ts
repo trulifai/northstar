@@ -35,14 +35,14 @@ router.get('/', async (req: Request, res: Response) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data?.data || [],
       pagination: result.data?.pagination,
     });
   } catch (error) {
     console.error('Error in GET /api/committees:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -72,13 +72,13 @@ router.get('/:chamber/:committeeCode', async (req: Request, res: Response) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/committees/:chamber/:committeeCode:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
@@ -113,13 +113,13 @@ router.get('/:chamber/:committeeCode/bills', async (req: Request, res: Response)
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: result.data,
     });
   } catch (error) {
     console.error('Error in GET /api/committees/:chamber/:committeeCode/bills:', error);
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
     });

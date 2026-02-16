@@ -16,10 +16,12 @@ import { errorHandler } from './middleware/errorHandler';
 import { dbService } from './services/db.service';
 
 // Routes
-import billsRouter from './routes/bills.cached.route';
+import billsCachedRouter from './routes/bills.cached.route';
 import membersRouter from './routes/members.route';
-import votesRouter from './routes/votes.cached.route';
-import committeesRouter from './routes/committees.cached.route';
+import votesCachedRouter from './routes/votes.cached.route';
+import votesLiveRouter from './routes/votes.route';
+import committeesCachedRouter from './routes/committees.cached.route';
+import committeesLiveRouter from './routes/committees.route';
 import amendmentsRouter from './routes/amendments.route';
 import hearingsRouter from './routes/hearings.route';
 import statsRouter from './routes/stats.route';
@@ -33,6 +35,8 @@ import graphRouter from './routes/graph.route';
 
 const app: Application = express();
 const logger = createLogger('server');
+const useLiveApiMode = (process.env.NORTHSTAR_DATA_MODE || '').toLowerCase() === 'live' || !process.env.DATABASE_URL;
+const useDbBackedMode = !useLiveApiMode && Boolean(process.env.DATABASE_URL);
 
 function parseQueryNumber(value: unknown): number | undefined {
   if (typeof value !== 'string') return undefined;
@@ -99,6 +103,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // ============================================================================
 
 app.use(async (req: Request, res: Response, next: NextFunction) => {
+  if (!useDbBackedMode) {
+    return next();
+  }
+
   if (req.method !== 'GET' || isProviderEnabled('congressGov')) {
     return next();
   }
@@ -302,10 +310,12 @@ app.get('/health', (_req: Request, res: Response) => {
       gemini: config.apiKeys.gemini ? 'configured' : 'missing',
       redis: config.redis ? 'configured' : 'not configured',
       cache: config.cache.enabled ? 'enabled' : 'disabled',
+      database: useDbBackedMode ? 'enabled' : 'disabled',
     },
     runtime: {
       demoMode: runtimeConfig.demoMode ? 'enabled' : 'disabled',
       providers: providerStatus(),
+      dataMode: useLiveApiMode ? 'live' : 'db',
     },
   });
 });
@@ -374,10 +384,10 @@ app.get('/api', (_req: Request, res: Response) => {
 });
 
 // Mount route handlers
-app.use('/api/bills', billsRouter);
+app.use('/api/bills', billsCachedRouter);
 app.use('/api/members', membersRouter);
-app.use('/api/votes', votesRouter);
-app.use('/api/committees', committeesRouter);
+app.use('/api/votes', useLiveApiMode ? votesLiveRouter : votesCachedRouter);
+app.use('/api/committees', useLiveApiMode ? committeesLiveRouter : committeesCachedRouter);
 app.use('/api/amendments', amendmentsRouter);
 app.use('/api/hearings', hearingsRouter);
 app.use('/api/stats', statsRouter);
@@ -421,6 +431,8 @@ app.listen(PORT, () => {
     gemini: !!config.apiKeys.gemini,
     demoMode: runtimeConfig.demoMode,
     providers: providerStatus(),
+    dataMode: useLiveApiMode ? 'live' : 'db',
+    dbBacked: useDbBackedMode,
     redis: !!config.redis,
     cacheEnabled: config.cache.enabled,
   });
@@ -439,6 +451,7 @@ app.listen(PORT, () => {
   console.log(`  Demo Mode:    ${runtimeConfig.demoMode ? 'Enabled' : 'Disabled'}`);
   console.log(`  Congress.gov: ${config.apiKeys.congressGov ? 'Connected' : 'Not configured'}`);
   console.log(`  Gemini AI:    ${config.apiKeys.gemini ? 'Connected' : 'Not configured'}`);
+  console.log(`  Data Mode:    ${useLiveApiMode ? 'Live API' : 'DB-backed cache'}`);
   console.log(`  Cache:        ${config.cache.enabled ? 'Enabled' : 'Disabled'}`);
   console.log('');
   console.log('==================================================');
