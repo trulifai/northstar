@@ -2,11 +2,11 @@
   "name": "northstar",
   "version": "1.0.0",
   "description": "Congressional Intelligence Platform - Full-blown enterprise product with AI-powered insights",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "scripts": {
     "dev": "tsx watch backend/src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "start:dev": "tsx backend/src/server.ts",
     "lint": "eslint backend/src --ext .ts",
     "lint:fix": "eslint backend/src --ext .ts --fix",
