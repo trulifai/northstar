@@ -193,7 +193,21 @@ export class SyncService {
         for (const billData of bills) {
           try {
             const billType = (billData.type?.toLowerCase() || '').replace(/\./g, '');
-            const billNumber = billData.number || 0;
+            const parsedBillNumber =
+              typeof billData.number === 'number'
+                ? billData.number
+                : parseInt(String(billData.number || ''), 10);
+
+            if (!Number.isFinite(parsedBillNumber) || parsedBillNumber <= 0 || !billType) {
+              errors++;
+              logger.warn(`Skipping bill with invalid identifier`, {
+                type: billData.type,
+                number: billData.number,
+              });
+              continue;
+            }
+
+            const billNumber = parsedBillNumber;
             const billId = `${billType}${billNumber}-${congress}`;
 
             await this.prisma.bill.upsert({
