@@ -105,6 +105,34 @@ class BillIntelligenceService {
       }
     }
 
+    // Local fallbacks keep intelligence endpoints useful without Gemini.
+    if (!aiSummary) {
+      aiSummary = this.buildFallbackSummary({
+        title: bill.title,
+        policyArea: bill.policyArea,
+        status: bill.status,
+        latestActionText: bill.latestActionText,
+      });
+    }
+
+    if (!keyPoints || keyPoints.length === 0) {
+      keyPoints = this.buildFallbackKeyPoints({
+        title: bill.title,
+        policyArea: bill.policyArea,
+        sponsorName: bill.sponsor?.fullName,
+        latestActionText: bill.latestActionText,
+        passageProbability,
+        bipartisanScore,
+      });
+    }
+
+    if (!topics || topics.length === 0) {
+      topics = this.buildFallbackTopics({
+        policyArea: bill.policyArea,
+        billType: bill.billType,
+      });
+    }
+
     // Persist heuristic scores even without AI
     if (bill.passageProbability === null || bill.bipartisanScore === null) {
       await prisma.bill.update({
@@ -125,6 +153,56 @@ class BillIntelligenceService {
 
     cache.set(cacheKey, intelligence, CacheTTL.HOUR);
     return intelligence;
+  }
+
+  private buildFallbackSummary(params: {
+    title: string | null;
+    policyArea: string | null;
+    status: string | null;
+    latestActionText: string | null;
+  }): string {
+    const title = params.title || 'This bill';
+    const policyArea = params.policyArea ? ` in ${params.policyArea}` : '';
+    const statusText = params.status ? ` Current status: ${params.status}.` : '';
+    const latestAction = params.latestActionText ? ` Latest action: ${params.latestActionText}.` : '';
+
+    return `${title} is a congressional proposal${policyArea}.${statusText}${latestAction}`.trim();
+  }
+
+  private buildFallbackKeyPoints(params: {
+    title: string | null;
+    policyArea: string | null;
+    sponsorName: string | null | undefined;
+    latestActionText: string | null;
+    passageProbability: number;
+    bipartisanScore: number;
+  }): string[] {
+    const points: string[] = [];
+
+    points.push(`Title: ${params.title || 'Untitled bill'}`);
+    if (params.policyArea) points.push(`Policy area: ${params.policyArea}`);
+    if (params.sponsorName) points.push(`Sponsor: ${params.sponsorName}`);
+    if (params.latestActionText) points.push(`Latest action: ${params.latestActionText}`);
+    points.push(`Estimated passage probability: ${params.passageProbability}%`);
+    points.push(`Estimated bipartisan score: ${params.bipartisanScore}%`);
+
+    return points.slice(0, 6);
+  }
+
+  private buildFallbackTopics(params: { policyArea: string | null; billType: string }): string[] {
+    const topics = new Set<string>();
+
+    if (params.policyArea) {
+      topics.add(params.policyArea);
+    }
+
+    if (params.billType.includes('res')) {
+      topics.add('Resolution');
+    } else {
+      topics.add('Legislation');
+    }
+
+    return Array.from(topics);
   }
 
   /**
