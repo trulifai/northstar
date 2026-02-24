@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { billsApi } from '@/lib/api';
 
+export const dynamic = 'force-dynamic';
+
 interface SearchParams {
   searchParams: Promise<{
     congress?: string;

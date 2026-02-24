@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { committeesApi } from '@/lib/api';
 
+export const dynamic = 'force-dynamic';
+
 interface SearchParams {
   searchParams: Promise<{
     chamber?: string;

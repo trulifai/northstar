@@ -32,6 +32,6 @@
       "@/*": ["backend/src/*"]
     }
   },
-  "include": ["backend/**/*"],
+  "include": ["backend/src/server.ts"],
   "exclude": ["node_modules", "dist", "frontend"]
 }

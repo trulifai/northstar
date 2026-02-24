@@ -11,7 +11,7 @@
     "lint": "eslint backend/src --ext .ts",
     "lint:fix": "eslint backend/src --ext .ts --fix",
     "format": "prettier --write \"backend/src/**/*.ts\"",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

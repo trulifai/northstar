@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { billsApi, membersApi, votesApi, statsApi } from '@/lib/api';
+import { billsApi, votesApi, statsApi } from '@/lib/api';
+
+export const dynamic = 'force-dynamic';
 
 async function getStats() {
   try {

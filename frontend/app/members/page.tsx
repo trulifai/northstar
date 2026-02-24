@@ -11,6 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { membersApi } from '@/lib/api';
 
+export const dynamic = 'force-dynamic';
+
 interface SearchParams {
   searchParams: Promise<{
     state?: string;

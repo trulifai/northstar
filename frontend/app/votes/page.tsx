@@ -10,6 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { votesApi } from '@/lib/api';
 import Link from 'next/link';
 
+export const dynamic = 'force-dynamic';
+
 interface SearchParams {
   searchParams: Promise<{
     congress?: string;
