@@ -1,0 +1,22 @@
+{
+  "name": "Cloud development: Northstar",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "remoteUser": "node",
+  "postCreateCommand": "bash .codex/setup.sh",
+  "forwardPorts": [
+    3000,
+    3001,
+    5432,
+    6379
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  }
+}
